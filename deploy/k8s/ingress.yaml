@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway-ts
+  namespace: stealth-browser
+  annotations:
+    tailscale.com/proxy-group: cluster-ingress
+    tailscale.com/hostname: stealth-browser
+spec:
+  ingressClassName: tailscale
+  # Must use defaultBackend: Tailscale ProxyGroup ingress does not support rules.host
+  defaultBackend:
+    service:
+      name: gateway
+      port:
+        number: 8080
+  tls:
+    - hosts:
+        - stealth-browser

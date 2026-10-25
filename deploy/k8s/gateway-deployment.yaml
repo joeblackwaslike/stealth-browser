@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: stealth-browser
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      imagePullSecrets:
+        - name: ghcr-credentials
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: gateway
+          image: ghcr.io/joeblackwaslike/stealth-browser-gateway:0.1.6
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: stealth-browser-secrets
+                  key: gatewayToken
+            - name: WS_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: stealth-browser-secrets
+                  key: wsPath
+            - name: CAMOUFOX_WS_URL
+              value: ws://camoufox.stealth-browser.svc.cluster.local:3000/$(WS_PATH)
+          volumeMounts:
+            - name: state
+              mountPath: /state
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: stealth-browser-state

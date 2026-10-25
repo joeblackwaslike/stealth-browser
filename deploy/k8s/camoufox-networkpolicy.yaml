@@ -1,0 +1,57 @@
+# The gateway rejects private URLs, but only by the literal hostname, and
+# Playwright's route handler never sees redirect hops. This stops the browser
+# itself from reaching anything private: redirects to internal addresses, DNS
+# names that resolve privately, and subresources all fail at the network.
+# Ingress is limited to the gateway pods, so no other workload in the cluster
+# can drive the browser even if it learns the ws path. kubectl port-forward
+# (pnpm signin, smoke tests) enters the pod's own network namespace and is
+# not affected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: camoufox-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: camoufox
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/3

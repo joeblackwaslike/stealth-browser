@@ -11,3 +11,8 @@ dist/
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+__pycache__/
+scripts/__pycache__/
+
+# Local agent tooling state (session IDs, prompt summaries)
+.clawhip/

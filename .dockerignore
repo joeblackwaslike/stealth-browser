@@ -1,0 +1,10 @@
+node_modules
+dist
+.worktrees
+.superpowers
+docs
+.env*
+.git
+.clawhip
+*.storage-state.json
+.beads-cred*
