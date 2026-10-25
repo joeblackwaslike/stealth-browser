@@ -187,15 +187,12 @@ export function createApp(deps: AppDeps): Hono {
 				);
 			}
 			verdict = "navigation_failed";
-			return done(
-				c.json(
-					{
-						error: "navigation_failed",
-						message: error instanceof Error ? error.message : String(error),
-					},
-					502,
-				),
+			const message = error instanceof Error ? error.message : String(error);
+			logger.warn(
+				{ profile: resolved, host, err: message },
+				"navigation_failed",
 			);
+			return done(c.json({ error: "navigation_failed", message }, 502));
 		}
 	});
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pino } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApp } from "../src/app.js";
+import { type AppDeps, createApp } from "../src/app.js";
 import type { Fetcher, FetchResult } from "../src/browser.js";
 import { PROFILES, type Profile, type ProfileName } from "../src/profiles.js";
 import {
@@ -57,7 +57,10 @@ let dir: string;
 let store: StateStore;
 let calls: number;
 
-function build(fetcher: Fetcher) {
+function build(
+	fetcher: Fetcher,
+	logger = pino({ level: "silent" }) as AppDeps["logger"],
+) {
 	const counted: Fetcher = (req) => {
 		calls++;
 		return fetcher(req);
@@ -72,7 +75,7 @@ function build(fetcher: Fetcher) {
 		fetcher: counted,
 		scheduler: new Scheduler(noGap, clock),
 		store,
-		logger: pino({ level: "silent" }),
+		logger,
 		now: clock.now,
 	});
 }
@@ -244,6 +247,20 @@ describe("app", () => {
 			error: "state_write_failed",
 			profile: "reddit",
 		});
+	});
+
+	it("logs the underlying error when navigation fails", async () => {
+		const lines: string[] = [];
+		const logger = pino(
+			{ level: "warn" },
+			{ write: (line: string) => void lines.push(line) },
+		);
+		const app = build(async () => {
+			throw new Error("NS_ERROR_CONNECTION_REFUSED");
+		}, logger);
+		const res = await post(app, { url: "https://example.com/" });
+		expect(res.status).toBe(502);
+		expect(lines.join("")).toContain("NS_ERROR_CONNECTION_REFUSED");
 	});
 
 	it("returns 400 for a cluster-internal url", async () => {
