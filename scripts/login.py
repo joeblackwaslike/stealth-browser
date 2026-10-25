@@ -116,7 +116,11 @@ def running(*cmd: str) -> Iterator[subprocess.Popen]:
         yield proc
     finally:
         proc.terminate()
-        proc.wait(timeout=10)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 def wait_for_port(port: int, proc: subprocess.Popen) -> None:
