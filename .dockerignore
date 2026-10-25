@@ -5,3 +5,6 @@ dist
 docs
 .env*
 .git
+.clawhip
+*.storage-state.json
+.beads-cred*

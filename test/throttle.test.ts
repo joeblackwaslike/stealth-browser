@@ -110,6 +110,21 @@ describe("Scheduler", () => {
 		expect(await bResult).toBeInstanceOf(ProfilePausedError);
 	});
 
+	it("rejects a paused task without first sleeping its gap", async () => {
+		const clock = fakeClock();
+		const s = new Scheduler(PROFILES, clock);
+		await s.run("ebay", async () => 1);
+		const gate = deferred();
+		const a = s.run("anon", () => gate.promise);
+		const b = s.run("ebay", async () => 2).catch((e: unknown) => e);
+		s.pause("ebay");
+		const before = clock.now();
+		gate.release();
+		await a;
+		expect(await b).toBeInstanceOf(ProfilePausedError);
+		expect(clock.now()).toBe(before);
+	});
+
 	it("releases the slot when a task throws", async () => {
 		const s = new Scheduler(PROFILES, fakeClock());
 		await expect(

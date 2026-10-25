@@ -22,7 +22,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 				.string()
 				.regex(/^wss?:\/\//, "must start with ws:// or wss://"),
 			STATE_DIR: z.string().default("/state"),
-			PORT: z.coerce.number().int().positive().default(8080),
+			PORT: z.coerce.number().int().positive().max(65535).default(8080),
 			LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 		},
 		runtimeEnv: env,

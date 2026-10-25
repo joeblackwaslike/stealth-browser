@@ -8,7 +8,11 @@ const EXPECTED_TIMEZONE = "America/New_York";
 const wsUrl = z.url({ protocol: /^wss?$/ }).parse(process.env.CAMOUFOX_WS_URL);
 
 async function probe() {
-	const browser = await firefox.connect(wsUrl);
+	// Playwright puts the full ws URL, secret path included, in connect errors.
+	const browser = await firefox.connect(wsUrl).catch((error: unknown) => {
+		const path = new URL(wsUrl).pathname;
+		throw new Error(String(error).replaceAll(path, "/<WS_PATH>"));
+	});
 	try {
 		const page = await browser.newPage();
 		return await page.evaluate(() => ({

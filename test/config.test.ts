@@ -16,6 +16,16 @@ describe("loadConfig", () => {
 		).toThrow();
 	});
 
+	it("rejects a port above 65535", () => {
+		expect(() =>
+			loadConfig({
+				GATEWAY_TOKEN: token,
+				CAMOUFOX_WS_URL: "ws://x:3000/p",
+				PORT: "70000",
+			}),
+		).toThrow();
+	});
+
 	it("applies defaults", () => {
 		expect(
 			loadConfig({

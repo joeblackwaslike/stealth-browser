@@ -73,8 +73,8 @@ def missing_cookie_error(profile: str, state: dict) -> str | None:
     return None
 
 
-def upload_state(base_url: str, token: str, profile: str, state: dict) -> int:
-    """PUT the storageState to the gateway and return the HTTP status."""
+def upload_state(base_url: str, token: str, profile: str, state: dict) -> str | None:
+    """PUT the storageState to the gateway. Returns None on success, else why it failed."""
     request = urllib.request.Request(
         f"{base_url}/profiles/{profile}/state",
         data=json.dumps(state).encode(),
@@ -86,9 +86,11 @@ def upload_state(base_url: str, token: str, profile: str, state: dict) -> int:
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
-            return response.status
+            return None if response.status == 204 else f"HTTP {response.status}"
     except urllib.error.HTTPError as error:
-        return error.code
+        return f"HTTP {error.code}"
+    except urllib.error.URLError as error:
+        return f"gateway unreachable ({error.reason})"
 
 
 def kubectl(*args: str) -> str:
@@ -136,11 +138,18 @@ def wait_for_port(port: int, proc: subprocess.Popen) -> None:
 
 
 def stop_vnc() -> None:
-    subprocess.run(  # nosec B603 B607
+    result = subprocess.run(  # nosec B603 B607
         ["kubectl", "-n", NAMESPACE, "exec", POD, "--", "pkill", "-x", "x11vnc"],
         capture_output=True,
-        check=False,  # pkill exits 1 when nothing was running
+        text=True,
+        check=False,
     )
+    # pkill exits 1 when nothing was running; anything else is a real failure.
+    if result.returncode not in (0, 1):
+        print(
+            f"warning: could not stop x11vnc in the pod: {result.stderr.strip()}",
+            file=sys.stderr,
+        )
 
 
 def pod_display() -> str:
@@ -226,13 +235,16 @@ def main() -> None:
                         if error:
                             print(error)
                             continue
-                        status = upload_state(base_url, token, profile, state)
-                        if status == 204:
+                        failure = upload_state(base_url, token, profile, state)
+                        if failure is None:
                             print(
                                 f"uploaded {profile} session ({len(state['cookies'])} cookies)"
                             )
                             return
-                        raise SystemExit(f"upload failed: HTTP {status}")
+                        # Keep the browser and session; the login isn't lost.
+                        print(
+                            f"upload failed: {failure}. Fix it, then press Enter to retry."
+                        )
                 finally:
                     context.close()
                     browser.close()

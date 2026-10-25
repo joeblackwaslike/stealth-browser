@@ -1,5 +1,11 @@
 # stealth-browser: replace Browserless with a Camoufox gateway
 
+> This is the original design from 2026-10-16, kept as a record. Several details
+> changed during the build: Camoufox 156 instead of 150, profiles picked from the
+> URL's domain and all its subdomains with no `profile` request field, sign-in
+> through the cluster's own browser over VNC, and a NetworkPolicy limiting the
+> Camoufox pod's traffic. The [README](../../../README.md) describes how it works now.
+
 ## Context
 
 The Pi cluster's Browserless (`ai-listings/deployment/kubernetes/browserless/`, stock

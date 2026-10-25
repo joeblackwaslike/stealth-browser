@@ -74,10 +74,11 @@ export class Scheduler {
 		this.inFlight++;
 		const result = this.tail.then(async () => {
 			try {
+				// Check the pause before and after the gap, so a paused task never
+				// holds the only browser slot for its full gap.
+				this.throwIfPaused(profile);
 				await this.waitForGap(profile);
-				const pausedUntil = this.pausedUntil(profile);
-				if (pausedUntil !== undefined)
-					throw new ProfilePausedError(profile, pausedUntil);
+				this.throwIfPaused(profile);
 				this.lastStart.set(profile, this.clock.now());
 				return await task();
 			} finally {
@@ -89,6 +90,11 @@ export class Scheduler {
 			() => undefined,
 		);
 		return result;
+	}
+
+	private throwIfPaused(profile: ProfileName): void {
+		const until = this.pausedUntil(profile);
+		if (until !== undefined) throw new ProfilePausedError(profile, until);
 	}
 
 	private async waitForGap(profile: ProfileName): Promise<void> {

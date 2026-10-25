@@ -8,13 +8,13 @@ export type PageVerdict =
 	| { kind: "rate_limited" };
 
 const CAPTCHA_WIDGET =
-	/class="(?:g-recaptcha|h-captcha)"|id="captchacharacters"/i;
-const VERIFY_HUMAN = /verify you are human/i;
+	/class=["'][^"']*\b(?:g-recaptcha|h-captcha)\b[^"']*["']|id=["']captchacharacters["']/i;
+const VERIFY_HUMAN = /verify\s+you\s+are\s+human/i;
 const INTERRUPTION_TITLE = /Pardon Our Interruption/i;
 const EBAY_ERROR_TITLE = /^Error Page/i;
 
 function pageTitle(html: string): string {
-	return /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "";
+	return (/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? "").trim();
 }
 
 function withoutScriptsAndStyles(html: string): string {

@@ -51,7 +51,8 @@ export function isLoginProfile(value: string): value is LoginProfileName {
  * notebay.com and ebay.com.evil.example out.
  */
 export function profileForUrl(url: URL): ProfileName {
-	const host = url.hostname;
+	// "ebay.com." is the same host as "ebay.com"; drop the DNS root dot.
+	const host = url.hostname.replace(/\.$/, "");
 	for (const profile of Object.values(PROFILES)) {
 		if (profile.domains.some((d) => host === d || host.endsWith(`.${d}`))) {
 			return profile.name;

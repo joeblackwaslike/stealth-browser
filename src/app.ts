@@ -4,7 +4,12 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import type { Fetcher } from "./browser.js";
 import { classifyPage } from "./detect.js";
-import { isLoginProfile, type ProfileName, profileForUrl } from "./profiles.js";
+import {
+	isLoginProfile,
+	type LoginProfileName,
+	type ProfileName,
+	profileForUrl,
+} from "./profiles.js";
 import {
 	type StateStore,
 	type StorageState,
@@ -31,6 +36,9 @@ export type AppDeps = {
 	now?: () => number;
 };
 
+/** The saved-login file couldn't be read (corrupt JSON, EACCES, EIO). */
+class StateUnavailableError extends Error {}
+
 function parseUrl(raw: string): URL | undefined {
 	try {
 		return new URL(raw);
@@ -43,6 +51,10 @@ function parseUrl(raw: string): URL | undefined {
 export function createApp(deps: AppDeps): Hono {
 	const { fetcher, scheduler, store, logger } = deps;
 	const now = deps.now ?? Date.now;
+	const readState = (name: LoginProfileName) =>
+		store.read(name).catch((error: unknown) => {
+			throw new StateUnavailableError(String(error));
+		});
 	const app = new Hono();
 	app.use("*", bearerAuth({ token: deps.token }));
 
@@ -83,36 +95,40 @@ export function createApp(deps: AppDeps): Hono {
 		const resolved = profileForUrl(parsed);
 		profile = resolved;
 
-		if (isLoginProfile(resolved) && !(await store.read(resolved))) {
-			verdict = "no_session";
-			return done(c.json({ session_expired: true, profile: resolved }, 401));
-		}
-
 		let generation = 0;
 		try {
+			if (isLoginProfile(resolved) && !(await readState(resolved))) {
+				verdict = "no_session";
+				return done(c.json({ session_expired: true, profile: resolved }, 401));
+			}
+
 			// Read the login when the task starts, not when it was queued, so a
 			// waiting request uses the cookies the previous request refreshed.
-			const result = await scheduler.run(resolved, async () => {
+			const { result, page } = await scheduler.run(resolved, async () => {
 				let storageState: StorageState | undefined;
 				if (isLoginProfile(resolved)) {
-					const stored = await store.read(resolved);
+					const stored = await readState(resolved);
 					storageState = stored?.state;
 					generation = stored?.generation ?? 0;
 				}
-				return fetcher({ url, waitForTimeout, storageState });
-			});
-			const finalUrl = parseUrl(result.finalUrl) ? result.finalUrl : url;
-			const page = classifyPage({
-				profile: resolved,
-				html: result.html,
-				finalUrl,
-				cookieNames: result.storageState.cookies.map((cookie) => cookie.name),
-				status: result.status,
+				const fetched = await fetcher({ url, waitForTimeout, storageState });
+				const classified = classifyPage({
+					profile: resolved,
+					html: fetched.html,
+					finalUrl: parseUrl(fetched.finalUrl) ? fetched.finalUrl : url,
+					cookieNames: fetched.storageState.cookies.map(
+						(cookie) => cookie.name,
+					),
+					status: fetched.status,
+				});
+				// Pause inside the task, before it frees its slot, so no queued
+				// request for this profile can start after a block.
+				if (classified.kind === "blocked") scheduler.pause(resolved);
+				return { result: fetched, page: classified };
 			});
 			verdict = page.kind;
 
 			if (page.kind === "blocked") {
-				scheduler.pause(resolved);
 				await saveCapture(resolved, "blocked", result.html);
 				return done(
 					c.json(
@@ -147,6 +163,16 @@ export function createApp(deps: AppDeps): Hono {
 				}),
 			);
 		} catch (error) {
+			if (error instanceof StateUnavailableError) {
+				verdict = "state_unavailable";
+				logger.warn(
+					{ profile: resolved, err: error.message },
+					"state_read_failed",
+				);
+				return done(
+					c.json({ error: "state_unavailable", profile: resolved }, 500),
+				);
+			}
 			if (error instanceof QueueFullError) {
 				verdict = "queue_full";
 				return done(c.json({ error: "queue_full" }, 429));
@@ -197,7 +223,12 @@ export function createApp(deps: AppDeps): Hono {
 				400,
 			);
 		}
-		await store.write(name, state.data);
+		try {
+			await store.write(name, state.data);
+		} catch (error) {
+			logger.warn({ profile: name, err: String(error) }, "state_write_failed");
+			return c.json({ error: "state_write_failed", profile: name }, 500);
+		}
 		logger.info({ profile: name, status: 204 });
 		return c.body(null, 204);
 	});

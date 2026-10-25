@@ -192,6 +192,32 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({ kind: "rate_limited" });
 	});
 
+	it.each([
+		['<div class="g-recaptcha extra"></div>', "captcha"],
+		["<div class='h-captcha'></div>", "captcha"],
+		["<p>Please verify you\n   <b>are</b> human</p>", "verify_human"],
+	])("blocks a challenge written as %s", (html, reason) => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: `<html><body>${html}</body></html>`,
+			finalUrl: "https://example.com/",
+			cookieNames: [],
+			status: 200,
+		});
+		expect(verdict).toEqual({ kind: "blocked", reason });
+	});
+
+	it("blocks an eBay error page whose title has leading whitespace", () => {
+		const verdict = classifyPage({
+			profile: "ebay",
+			html: "<html><head><title>\n  Error Page | eBay</title></head><body></body></html>",
+			finalUrl: "https://www.ebay.com/sch/i.html",
+			cookieNames: ["s"],
+			status: 200,
+		});
+		expect(verdict).toEqual({ kind: "blocked", reason: "ebay_error_page" });
+	});
+
 	it("ignores an 'Error Page' title outside eBay", () => {
 		const verdict = classifyPage({
 			profile: "anon",
@@ -217,7 +243,7 @@ describe("classifyPage", () => {
 		});
 	});
 
-	it("does not treat a 403 with real content as blocked", () => {
+	it("treats a 403 as blocked even when the page has real content", () => {
 		const verdict = classifyPage({
 			profile: "ebay",
 			html: "<html><head><title>eBay - Sold Items</title></head><body><div class='s-item__price'>$50</div></body></html>",

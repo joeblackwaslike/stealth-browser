@@ -14,9 +14,14 @@ kubectl get secret ghcr-credentials -n ai-listings -o json \
 
 # Generate secrets once; never rotate on redeploy.
 if ! kubectl get secret stealth-browser-secrets -n "$NS" >/dev/null 2>&1; then
+  # Plain assignments so set -e stops on an openssl failure; inside the
+  # kubectl arguments a failed substitution would create empty secrets.
+  gateway_token="$(openssl rand -hex 24)"
+  ws_path="$(openssl rand -hex 24)"
+  [[ ${#gateway_token} -eq 48 && ${#ws_path} -eq 48 ]] || { echo "openssl produced no secret" >&2; exit 1; }
   kubectl create secret generic stealth-browser-secrets -n "$NS" \
-    --from-literal=gatewayToken="$(openssl rand -hex 24)" \
-    --from-literal=wsPath="$(openssl rand -hex 24)"
+    --from-literal=gatewayToken="$gateway_token" \
+    --from-literal=wsPath="$ws_path"
 fi
 
 # The fingerprint lives outside deploy/k8s, so kustomize needs its load restrictor off.

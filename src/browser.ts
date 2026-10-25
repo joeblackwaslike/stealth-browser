@@ -100,7 +100,14 @@ export function createCamoufoxFetcher(
 					storageState: await context.storageState(),
 				};
 			} finally {
-				await context.close().catch(() => undefined);
+				// A context that won't close would stay alive on the server. Drop
+				// the connection instead; the server discards a client's contexts
+				// when it disconnects, and the next request reconnects.
+				await context.close().catch(() => {
+					const stuck = browser;
+					browser = undefined;
+					void stuck?.close().catch(() => undefined);
+				});
 			}
 		} catch (error) {
 			throw redact(error);
@@ -108,9 +115,13 @@ export function createCamoufoxFetcher(
 	};
 
 	const fetch: Fetcher = async (req) => {
+		// The deadline starts before getBrowser(), so it budgets a reconnect too.
 		const deadlineMs =
 			opts.requestDeadlineMs ??
-			NAVIGATION_TIMEOUT_MS + req.waitForTimeout + REQUEST_MARGIN_MS;
+			connectTimeoutMs +
+				NAVIGATION_TIMEOUT_MS +
+				req.waitForTimeout +
+				REQUEST_MARGIN_MS;
 		let timer: NodeJS.Timeout | undefined;
 		const deadline = new Promise<never>((_, reject) => {
 			timer = setTimeout(() => {

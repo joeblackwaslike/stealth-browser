@@ -1,8 +1,0 @@
-{
-  "observed_at": "2026-10-25T12:55:57.306Z",
-  "provider": "claude-code",
-  "event_name": "UserPromptSubmit",
-  "session_id": "bafff0a2-9cb6-4b8a-83f3-bb11187373ad",
-  "turn_id": null,
-  "prompt_summary": "Workspace boundary (important):\n- Confine source, project, user-data, and system file changes to the current working directory, which is a git worktree. Do not intentionally create, modify, move, or d…"
-}

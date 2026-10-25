@@ -17,6 +17,8 @@ describe("profileForUrl", () => {
 		["https://reddit.com/r/x", "reddit"],
 		["https://www.amazon.com/s?k=x", "anon"],
 		["https://WWW.EBAY.COM/", "ebay"],
+		["https://www.ebay.com./itm/1", "ebay"],
+		["https://reddit.com./r/x", "reddit"],
 		["https://notebay.com/", "anon"],
 		["https://ebay.com.evil.example/", "anon"],
 		["https://myreddit.com/", "anon"],

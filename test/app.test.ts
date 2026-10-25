@@ -189,6 +189,63 @@ describe("app", () => {
 		expect(seen[1]).toEqual(["b", "reddit_session"]);
 	});
 
+	it("pauses the profile before the next queued request can start", async () => {
+		const gate = deferred();
+		const app = build(async (r) => {
+			if (calls === 1) {
+				await gate.promise;
+				return okResult(r.url, stateWith(), '<div class="g-recaptcha"></div>');
+			}
+			return okResult(r.url);
+		});
+		const first = post(app, { url: "https://example.com/a" });
+		const second = post(app, { url: "https://example.com/b" });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		gate.release();
+		expect((await first).status).toBe(423);
+		const res = await second;
+		expect(res.status).toBe(423);
+		expect(await res.json()).toMatchObject({ reason: "paused" });
+		expect(calls).toBe(1);
+	});
+
+	it("returns a structured 500 when the saved login can't be read", async () => {
+		store = {
+			...store,
+			read: async () => {
+				throw new Error("EIO");
+			},
+		};
+		const app = build(async (r) => okResult(r.url));
+		const res = await post(app, { url: "https://www.reddit.com/r/x" });
+		expect(res.status).toBe(500);
+		expect(await res.json()).toEqual({
+			error: "state_unavailable",
+			profile: "reddit",
+		});
+		expect(calls).toBe(0);
+	});
+
+	it("returns a structured 500 when an uploaded login can't be saved", async () => {
+		store = {
+			...store,
+			write: async () => {
+				throw new Error("ENOSPC");
+			},
+		};
+		const app = build(async (r) => okResult(r.url));
+		const res = await app.request("/profiles/reddit/state", {
+			method: "PUT",
+			headers: { ...auth, "content-type": "application/json" },
+			body: JSON.stringify(stateWith("reddit_session")),
+		});
+		expect(res.status).toBe(500);
+		expect(await res.json()).toEqual({
+			error: "state_write_failed",
+			profile: "reddit",
+		});
+	});
+
 	it("returns 400 for a cluster-internal url", async () => {
 		const app = build(async (r) => okResult(r.url));
 		const res = await post(app, {

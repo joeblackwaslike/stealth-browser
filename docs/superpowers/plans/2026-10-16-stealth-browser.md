@@ -1,5 +1,11 @@
 # stealth-browser Implementation Plan
 
+> This is the original build plan from 2026-10-16, kept as a record. Several
+> details changed during the build: Camoufox 156 instead of 150, profiles picked
+> from the URL's domain and all its subdomains with no `profile` request field,
+> sign-in through the cluster's own browser over VNC, and a NetworkPolicy limiting
+> the Camoufox pod's traffic. The [README](../../../README.md) describes how it works now.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the Pi cluster's Browserless with a TypeScript gateway in front of one Camoufox server, with per-site saved logins, throttling, and explicit block and session-expired errors.

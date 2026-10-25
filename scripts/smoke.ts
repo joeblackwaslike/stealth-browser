@@ -39,8 +39,11 @@ async function gateway(url: string, name: string): Promise<Fetched> {
 	);
 	const body = await res.text();
 	if (res.status === 200 && process.env.SMOKE_OUT) {
-		mkdirSync(process.env.SMOKE_OUT, { recursive: true });
-		writeFileSync(join(process.env.SMOKE_OUT, `${name}.html`), body);
+		// Logged-in pages carry session tokens; keep them owner-only.
+		mkdirSync(process.env.SMOKE_OUT, { recursive: true, mode: 0o700 });
+		writeFileSync(join(process.env.SMOKE_OUT, `${name}.html`), body, {
+			mode: 0o600,
+		});
 	}
 	return { status: res.status, body, finalUrl: res.headers.get("x-final-url") };
 }
@@ -54,14 +57,21 @@ function expectOk(res: Fetched, marker: RegExp, min = 1): void {
 }
 
 async function fingerprint(): Promise<void> {
-	const wsPath = execFileSync(
-		"sh",
+	const encoded = execFileSync(
+		"kubectl",
 		[
-			"-c",
-			"kubectl get secret stealth-browser-secrets -n stealth-browser -o jsonpath='{.data.wsPath}' | base64 -d",
+			"get",
+			"secret",
+			"stealth-browser-secrets",
+			"-n",
+			"stealth-browser",
+			"-o",
+			"jsonpath={.data.wsPath}",
 		],
 		{ encoding: "utf8" },
-	).trim();
+	);
+	const wsPath = Buffer.from(encoded, "base64").toString("utf8").trim();
+	if (!wsPath) throw new Error("stealth-browser-secrets has no wsPath");
 	const forward = spawn(
 		"kubectl",
 		["port-forward", "-n", "stealth-browser", "svc/camoufox", "3000:3000"],
@@ -154,7 +164,7 @@ const requested = process.argv.slice(2);
 const names = requested.length > 0 ? requested : Object.keys(checks);
 let failed = false;
 for (const name of names) {
-	const check = checks[name];
+	const check = Object.hasOwn(checks, name) ? checks[name] : undefined;
 	if (!check) {
 		console.error(
 			`FAIL ${name}: unknown check (have: ${Object.keys(checks).join(", ")})`,
