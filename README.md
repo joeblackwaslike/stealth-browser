@@ -176,8 +176,10 @@ geoip would otherwise draw a random locale for the exit IP's region on every lau
 If your exit IP is somewhere else, set your own locale and timezone:
 
 1. Edit `PINNED` in `scripts/gen_fingerprint.py`.
-2. Run `uv run scripts/gen_fingerprint.py`. It needs a fetched Camoufox browser on the
-   machine and overwrites `profiles/fingerprint.json`.
+2. Run `uv run scripts/gen_fingerprint.py`. It reads the user agent from the Camoufox
+   build active on your machine, so activate the same build the server image uses
+   (`CAMOUFOX_BROWSER_VERSION` and `CAMOUFOX_BUILD_*` in `camoufox/Dockerfile`) first.
+   It overwrites `profiles/fingerprint.json`.
 3. Update `EXPECTED_TIMEZONE` in `scripts/verify-fingerprint.ts`.
 4. Run `deploy/deploy.sh`, then `kubectl -n stealth-browser rollout restart
    deploy/camoufox` so the pod loads the new ConfigMap.
