@@ -56,7 +56,7 @@ curl -sS -m 180 -X POST "$STEALTH_BROWSER_URL/content" \
 The URL check looks at the literal hostname only. Redirects and DNS names that
 resolve to a private address are stopped one layer down: a NetworkPolicy
 (`deploy/k8s/camoufox-networkpolicy.yaml`) denies the Camoufox pod egress to
-private, CGNAT, loopback and link-local ranges. The same policy lets only the
+every non-public IPv4 range (see that file for the full list). The same policy lets only the
 gateway pods connect to Camoufox, so no other workload in the cluster can drive
 the browser. It only takes effect on a cluster whose network plugin enforces
 NetworkPolicy (k3s does by default).
