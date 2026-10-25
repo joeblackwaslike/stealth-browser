@@ -34,4 +34,22 @@ describe("createCamoufoxFetcher", () => {
 		await fetcher.close();
 		server.close();
 	}, 10_000);
+
+	it("holds a timed-out request until its abandoned work settles, so the scheduler can't overlap it", async () => {
+		const server = createServer(() => {});
+		await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+		const { port } = server.address() as AddressInfo;
+		const fetcher = createCamoufoxFetcher(`ws://127.0.0.1:${port}/x`, {
+			connectTimeoutMs: 800,
+			requestDeadlineMs: 100,
+		});
+		const started = Date.now();
+		const error = await fetcher
+			.fetch({ url: "https://example.com/", waitForTimeout: 0 })
+			.catch((e: unknown) => e);
+		expect((error as Error).message).toContain("exceeded 100ms");
+		expect(Date.now() - started).toBeGreaterThanOrEqual(700);
+		await fetcher.close();
+		server.close();
+	}, 10_000);
 });

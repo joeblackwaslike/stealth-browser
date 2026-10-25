@@ -142,6 +142,53 @@ describe("app", () => {
 		expect(calls).toBe(1);
 	});
 
+	it("routes by URL and ignores a caller-supplied profile, so eBay pacing can't be bypassed", async () => {
+		const app = build(async (r) => okResult(r.url));
+		const res = await post(app, {
+			url: "https://www.ebay.com/itm/1",
+			profile: "anon",
+		});
+		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({
+			session_expired: true,
+			profile: "ebay",
+		});
+		expect(calls).toBe(0);
+	});
+
+	it("still returns the page when saving the refreshed login fails", async () => {
+		await store.write("reddit", stateWith("reddit_session"));
+		store = {
+			...store,
+			writeIfUnchanged: async () => {
+				throw new Error("disk full");
+			},
+		};
+		const app = build(async (r) =>
+			okResult(r.url, stateWith("reddit_session")),
+		);
+		const res = await post(app, { url: "https://www.reddit.com/r/x" });
+		expect(res.status).toBe(200);
+	});
+
+	it("reads the saved login inside the queue, so a waiting request gets the state the previous one saved", async () => {
+		await store.write("reddit", stateWith("a", "reddit_session"));
+		const gate = deferred();
+		const seen: string[][] = [];
+		const app = build(async (r) => {
+			seen.push((r.storageState?.cookies ?? []).map((c) => c.name));
+			if (seen.length === 1) await gate.promise;
+			return okResult(r.url, stateWith("b", "reddit_session"));
+		});
+		const first = post(app, { url: "https://www.reddit.com/r/x" });
+		const second = post(app, { url: "https://www.reddit.com/r/y" });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		gate.release();
+		expect((await first).status).toBe(200);
+		expect((await second).status).toBe(200);
+		expect(seen[1]).toEqual(["b", "reddit_session"]);
+	});
+
 	it("returns 400 for a cluster-internal url", async () => {
 		const app = build(async (r) => okResult(r.url));
 		const res = await post(app, {

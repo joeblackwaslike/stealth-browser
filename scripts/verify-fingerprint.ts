@@ -26,10 +26,11 @@ const first = await probe();
 const second = await probe();
 console.log(JSON.stringify({ first, second }, null, 2));
 
+const differing = (Object.keys(first) as (keyof typeof first)[]).filter(
+	(key) => first[key] !== second[key],
+);
 const failures = [
-	first.userAgent !== second.userAgent &&
-		"userAgent differs between connections",
-	first.screen !== second.screen && "screen differs between connections",
+	...differing.map((key) => `${key} differs between connections`),
 	first.timeZone !== EXPECTED_TIMEZONE && `timeZone is ${first.timeZone}`,
 	first.webdriver !== false && `webdriver is ${first.webdriver}`,
 ].filter(Boolean);

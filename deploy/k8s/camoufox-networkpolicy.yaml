@@ -1,0 +1,39 @@
+# The gateway rejects private URLs, but only by the literal hostname, and
+# Playwright's route handler never sees redirect hops. This stops the browser
+# itself from reaching anything private: redirects to internal addresses, DNS
+# names that resolve privately, and subresources all fail at the network.
+# Ingress is untouched, so the gateway can still connect to the server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: camoufox-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: camoufox
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16

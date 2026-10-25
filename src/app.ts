@@ -20,7 +20,6 @@ import { isPublicHttpUrl } from "./url-guard.js";
 const contentBodySchema = z.object({
 	url: z.string(),
 	waitForTimeout: z.number().int().min(0).max(15000).default(3000),
-	profile: z.enum(["ebay", "reddit", "anon"]).optional(),
 });
 
 export type AppDeps = {
@@ -79,25 +78,29 @@ export function createApp(deps: AppDeps): Hono {
 			return invalid("url is not allowed");
 
 		host = parsed.hostname;
-		const resolved = body.data.profile ?? profileForUrl(parsed);
+		// The URL alone picks the profile, so a caller can't route an eBay URL
+		// around eBay's pacing and pauses.
+		const resolved = profileForUrl(parsed);
 		profile = resolved;
 
-		let storageState: StorageState | undefined;
-		let generation = 0;
-		if (isLoginProfile(resolved)) {
-			const stored = await store.read(resolved);
-			if (!stored) {
-				verdict = "no_session";
-				return done(c.json({ session_expired: true, profile: resolved }, 401));
-			}
-			storageState = stored.state;
-			generation = stored.generation;
+		if (isLoginProfile(resolved) && !(await store.read(resolved))) {
+			verdict = "no_session";
+			return done(c.json({ session_expired: true, profile: resolved }, 401));
 		}
 
+		let generation = 0;
 		try {
-			const result = await scheduler.run(resolved, () =>
-				fetcher({ url, waitForTimeout, storageState }),
-			);
+			// Read the login when the task starts, not when it was queued, so a
+			// waiting request uses the cookies the previous request refreshed.
+			const result = await scheduler.run(resolved, async () => {
+				let storageState: StorageState | undefined;
+				if (isLoginProfile(resolved)) {
+					const stored = await store.read(resolved);
+					storageState = stored?.state;
+					generation = stored?.generation ?? 0;
+				}
+				return fetcher({ url, waitForTimeout, storageState });
+			});
 			const finalUrl = parseUrl(result.finalUrl) ? result.finalUrl : url;
 			const page = classifyPage({
 				profile: resolved,
@@ -126,7 +129,16 @@ export function createApp(deps: AppDeps): Hono {
 				return done(c.json({ session_expired: true, profile: resolved }, 401));
 			}
 			if (isLoginProfile(resolved)) {
-				await store.writeIfUnchanged(resolved, result.storageState, generation);
+				// The page was fetched fine; a failed save only loses the cookie
+				// refresh, so log it instead of failing the request.
+				await store
+					.writeIfUnchanged(resolved, result.storageState, generation)
+					.catch((error: unknown) =>
+						logger.warn(
+							{ profile: resolved, err: String(error) },
+							"state_save_failed",
+						),
+					);
 			}
 			return done(
 				c.body(result.html, 200, {

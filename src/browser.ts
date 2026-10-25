@@ -20,6 +20,9 @@ export type Fetcher = (req: FetchRequest) => Promise<FetchResult>;
 const BLOCKED_RESOURCE_TYPES = new Set(["image", "media", "font"]);
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const REQUEST_MARGIN_MS = 15_000;
+// ponytail: fixed cap; if a dropped connection ever takes longer to unwind, the
+// next request may briefly overlap it rather than wedge the queue.
+const ABANDONED_WORK_GRACE_MS = 10_000;
 
 function redactor(wsEndpoint: string): (error: unknown) => Error {
 	const secrets = [wsEndpoint];
@@ -118,9 +121,24 @@ export function createCamoufoxFetcher(
 			}, deadlineMs);
 		});
 		const work = run(req);
-		work.catch(() => undefined);
+		const settled = work.then(
+			() => undefined,
+			() => undefined,
+		);
 		try {
 			return await Promise.race([work, deadline]);
+		} catch (error) {
+			// Hold the scheduler's slot until the abandoned request has unwound,
+			// so the next task doesn't overlap it on the browser.
+			let grace: NodeJS.Timeout | undefined;
+			await Promise.race([
+				settled,
+				new Promise((resolve) => {
+					grace = setTimeout(resolve, ABANDONED_WORK_GRACE_MS);
+				}),
+			]);
+			clearTimeout(grace);
+			throw error;
 		} finally {
 			clearTimeout(timer);
 		}

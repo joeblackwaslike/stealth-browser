@@ -1,4 +1,4 @@
-import type { ProfileName } from "./profiles.js";
+import { type ProfileName, profileForUrl } from "./profiles.js";
 
 /** Outcome of classifying a fetched page. */
 export type PageVerdict =
@@ -32,7 +32,8 @@ function blockReason(html: string, url: URL): string | null {
 		return "ebay_challenge_redirect";
 	const markup = withoutScriptsAndStyles(html);
 	if (INTERRUPTION_TITLE.test(pageTitle(html))) return "interruption_page";
-	if (EBAY_ERROR_TITLE.test(pageTitle(html))) return "ebay_error_page";
+	if (profileForUrl(url) === "ebay" && EBAY_ERROR_TITLE.test(pageTitle(html)))
+		return "ebay_error_page";
 	if (CAPTCHA_WIDGET.test(markup)) return "captcha";
 	if (VERIFY_HUMAN.test(visibleText(markup))) return "verify_human";
 	return null;
@@ -48,10 +49,13 @@ export function classifyPage(input: {
 }): PageVerdict {
 	const url = new URL(input.finalUrl);
 
+	// A target 429 is a rate limit even when its page carries a challenge
+	// marker; only a block pauses the profile.
+	if (input.status === 429) return { kind: "rate_limited" };
+
 	const reason = blockReason(input.html, url);
 	if (reason) return { kind: "blocked", reason };
 
-	if (input.status === 429) return { kind: "rate_limited" };
 	if (input.status === 403)
 		return { kind: "blocked", reason: "http_block_status" };
 

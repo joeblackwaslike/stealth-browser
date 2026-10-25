@@ -6,6 +6,7 @@ resources:
   - pvc.yaml
   - camoufox-deployment.yaml
   - camoufox-service.yaml
+  - camoufox-networkpolicy.yaml
   - gateway-deployment.yaml
   - gateway-service.yaml
   - ingress.yaml

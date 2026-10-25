@@ -140,9 +140,11 @@ export function createStateStore(
 		async saveCapture(profile, kind, html) {
 			await mkdir(capturesDir, { recursive: true });
 			const stamp = now().toISOString().replaceAll(":", "-");
+			// Captures can hold session tokens, same as the saved state.
 			await writeFile(
 				join(capturesDir, `${profile}-${kind}-${stamp}.html`),
 				html,
+				{ mode: 0o600 },
 			);
 			const files = (await readdir(capturesDir)).sort((a, b) =>
 				(a.match(TIMESTAMP_START)?.[0] ?? a).localeCompare(

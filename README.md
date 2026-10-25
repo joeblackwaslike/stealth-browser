@@ -52,10 +52,12 @@ curl -sS -m 180 -X POST "$STEALTH_BROWSER_URL/content" \
 | --- | --- | --- | --- |
 | `url` | string | required | Public `http`/`https` only. Loopback, private IPs, `localhost`, `.local`, `.svc`, `.cluster.local`, and bare hostnames are rejected. |
 | `waitForTimeout` | int, 0-15000 ms | 3000 | Extra wait after `domcontentloaded`, for lazy-loaded content. |
-| `profile` | `ebay` \| `reddit` \| `anon` | from URL | Override only. Callers should leave it out. |
 
-The URL check looks at the literal hostname. A DNS name that resolves to a private
-address gets through, so keep the gateway off the public internet.
+The URL check looks at the literal hostname only. Redirects and DNS names that
+resolve to a private address are stopped one layer down: a NetworkPolicy
+(`deploy/k8s/camoufox-networkpolicy.yaml`) denies the Camoufox pod egress to
+private, loopback and link-local ranges. It only takes effect on a cluster whose
+network plugin enforces NetworkPolicy (k3s does by default).
 
 A 200 returns the rendered HTML as `text/html`, with the post-redirect URL in the
 `X-Final-Url` header.

@@ -181,6 +181,28 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({ kind: "rate_limited" });
 	});
 
+	it("returns rate_limited for a target 429 even when the page carries a challenge marker", () => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: '<html><body><div class="g-recaptcha"></div></body></html>',
+			finalUrl: "https://example.com/",
+			cookieNames: [],
+			status: 429,
+		});
+		expect(verdict).toEqual({ kind: "rate_limited" });
+	});
+
+	it("ignores an 'Error Page' title outside eBay", () => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: "<html><head><title>Error Page - Acme Docs</title></head><body>how to read errors</body></html>",
+			finalUrl: "https://docs.example.com/errors",
+			cookieNames: [],
+			status: 200,
+		});
+		expect(verdict).toEqual({ kind: "ok" });
+	});
+
 	it("blocks when eBay responds with 403", () => {
 		const verdict = classifyPage({
 			profile: "ebay",
