@@ -11,3 +11,5 @@ dist/
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+__pycache__/
+scripts/__pycache__/

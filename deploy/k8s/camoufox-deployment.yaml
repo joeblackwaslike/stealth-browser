@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camoufox
+  namespace: stealth-browser
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: camoufox
+  template:
+    metadata:
+      labels:
+        app: camoufox
+    spec:
+      imagePullSecrets:
+        - name: ghcr-credentials
+      containers:
+        - name: camoufox
+          image: ghcr.io/joeblackwaslike/stealth-browser-camoufox:156.0.1-2
+          ports:
+            - containerPort: 3000
+          env:
+            - name: WS_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: stealth-browser-secrets
+                  key: wsPath
+          volumeMounts:
+            - name: fingerprint
+              mountPath: /etc/camoufox/fingerprint.json
+              subPath: fingerprint.json
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # tcpSocket stays green if the browser dies and Xvfb is unsupervised,
+          # so liveness checks both processes ([c] keeps pgrep from matching this sh).
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pgrep -x Xvfb >/dev/null && pgrep -f '[c]amoufox-bin -no-remote' >/dev/null
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: 768Mi
+            limits:
+              memory: 1536Mi
+      volumes:
+        - name: fingerprint
+          configMap:
+            name: camoufox-fingerprint
