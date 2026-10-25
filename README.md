@@ -90,6 +90,8 @@ to the store, unless a newer session was uploaded while the request ran.
 | 423 | same, `"reason":"paused"`, plus `Retry-After` (seconds) | The profile is still paused from an earlier block |
 | 429 | `{"error":"rate_limited","profile":...}` | The site answered 429; no pause |
 | 429 | `{"error":"queue_full"}` | The queue is full |
+| 500 | `{"error":"state_unavailable","profile":...}` | Reading the saved session failed |
+| 500 | `{"error":"state_write_failed","profile":...}` | `PUT /profiles/:name/state` failed to persist |
 | 502 | `{"error":"navigation_failed","message":...}` | Navigation failed or timed out |
 
 A fresh block's `reason` is one of `ebay_challenge_redirect`, `interruption_page`,
