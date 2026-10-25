@@ -2,8 +2,14 @@ import { isIP } from "node:net";
 
 const BLOCKED_SUFFIXES = [".svc", ".cluster.local", ".local"];
 
+/**
+ * Not publicly routable: RFC 1918, loopback, link-local, CGNAT, the IETF and
+ * documentation blocks, the benchmarking range (198.18.0.0/15), multicast and
+ * reserved space (224.0.0.0/3, which includes broadcast). Keep this in step with
+ * the `except` list in deploy/k8s/camoufox-networkpolicy.yaml.
+ */
 function isPrivateIpv4(host: string): boolean {
-	const [a = 0, b = 0] = host.split(".").map(Number);
+	const [a = 0, b = 0, c = 0] = host.split(".").map(Number);
 	return (
 		a === 0 ||
 		a === 10 ||
@@ -11,7 +17,12 @@ function isPrivateIpv4(host: string): boolean {
 		(a === 169 && b === 254) ||
 		(a === 172 && b >= 16 && b <= 31) ||
 		(a === 192 && b === 168) ||
-		(a === 100 && b >= 64 && b <= 127)
+		(a === 192 && b === 0 && (c === 0 || c === 2)) ||
+		(a === 100 && b >= 64 && b <= 127) ||
+		(a === 198 && (b === 18 || b === 19)) ||
+		(a === 198 && b === 51 && c === 100) ||
+		(a === 203 && b === 0 && c === 113) ||
+		a >= 224
 	);
 }
 

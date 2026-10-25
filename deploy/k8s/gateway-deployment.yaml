@@ -21,7 +21,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: gateway
-          image: ghcr.io/joeblackwaslike/stealth-browser-gateway:0.1.5
+          image: ghcr.io/joeblackwaslike/stealth-browser-gateway:0.1.6
           ports:
             - containerPort: 8080
           env:
