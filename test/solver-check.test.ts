@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { classifyResponse } from "../scripts/solver-check.js";
 
@@ -58,4 +59,24 @@ describe("classifyResponse fallthrough", () => {
 			classifyResponse(200, new Headers(), "<html>consent interstitial</html>"),
 		).toEqual({ kind: "other" });
 	});
+});
+
+describe("solver-check exit status", () => {
+	it("exits nonzero when a request fails", () => {
+		const run = spawnSync(
+			process.execPath,
+			["scripts/solver-check.ts", "--max", "1"],
+			{
+				env: {
+					...process.env,
+					STEALTH_BROWSER_URL: "http://127.0.0.1:1",
+					STEALTH_BROWSER_TOKEN: "x",
+				},
+				encoding: "utf8",
+				timeout: 20_000,
+			},
+		);
+		expect(run.stdout).toContain("1 ERR");
+		expect(run.status).not.toBe(0);
+	}, 30_000);
 });

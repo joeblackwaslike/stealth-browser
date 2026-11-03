@@ -102,6 +102,7 @@ async function main(): Promise<void> {
 	console.log(
 		'reminder: read the gateway logs for `solve: "solved"` / `solve_failed` entries',
 	);
+	if (counts.has(0)) process.exitCode = 1;
 }
 
 if (import.meta.main) await main();
