@@ -8,6 +8,9 @@ export type Config = {
 	stateDir: string;
 	port: number;
 	logLevel: "debug" | "info" | "warn" | "error";
+	solverApiKey?: string;
+	solverBaseUrl: string;
+	solverMaxPerHour: number;
 };
 
 /**
@@ -24,6 +27,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 			STATE_DIR: z.string().default("/state"),
 			PORT: z.coerce.number().int().positive().max(65535).default(8080),
 			LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+			SOLVER_API_KEY: z.string().min(1).optional(),
+			SOLVER_BASE_URL: z.string().url().default("https://2captcha.com"),
+			SOLVER_MAX_PER_HOUR: z.coerce.number().int().positive().default(20),
 		},
 		runtimeEnv: env,
 		emptyStringAsUndefined: true,
@@ -34,5 +40,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		stateDir: parsed.STATE_DIR,
 		port: parsed.PORT,
 		logLevel: parsed.LOG_LEVEL,
+		solverApiKey: parsed.SOLVER_API_KEY,
+		solverBaseUrl: parsed.SOLVER_BASE_URL,
+		solverMaxPerHour: parsed.SOLVER_MAX_PER_HOUR,
 	};
 }

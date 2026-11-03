@@ -34,4 +34,36 @@ describe("loadConfig", () => {
 			}),
 		).toMatchObject({ stateDir: "/state", port: 8080, logLevel: "info" });
 	});
+	describe("solver settings", () => {
+		const required = { GATEWAY_TOKEN: token, CAMOUFOX_WS_URL: "ws://x:3000/p" };
+
+		it("leaves the api key optional and applies defaults", () => {
+			expect(loadConfig(required)).toMatchObject({
+				solverApiKey: undefined,
+				solverBaseUrl: "https://2captcha.com",
+				solverMaxPerHour: 20,
+			});
+		});
+
+		it("reads overrides", () => {
+			expect(
+				loadConfig({
+					...required,
+					SOLVER_API_KEY: "k",
+					SOLVER_BASE_URL: "https://s.test",
+					SOLVER_MAX_PER_HOUR: "5",
+				}),
+			).toMatchObject({
+				solverApiKey: "k",
+				solverBaseUrl: "https://s.test",
+				solverMaxPerHour: 5,
+			});
+		});
+
+		it("rejects a non-positive hourly budget", () => {
+			expect(() =>
+				loadConfig({ ...required, SOLVER_MAX_PER_HOUR: "0" }),
+			).toThrow();
+		});
+	});
 });
