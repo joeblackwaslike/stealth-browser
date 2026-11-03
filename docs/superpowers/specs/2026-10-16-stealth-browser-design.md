@@ -43,7 +43,8 @@ also calls it with the in-cluster URL hardcoded, but nothing calls that code yet
   product pages return real content. Existing callers keep working after a URL and token change.
   Blocks and expired sessions come back as explicit errors, never as a 200 with challenge HTML.
 - Non-goals: proxies, captcha-solving services, posting or messaging or acting as the operator,
-  high-volume scraping, per-site parsers (callers parse HTML as they do today).
+  high-volume scraping, per-site parsers (callers parse HTML as they do today). The captcha
+  solver added later is specified in `2026-11-03-captcha-solver-design.md`.
 - Anti-goals, which count as failure even if everything else works: any request touching an
   eBay account other than the scraping account; credentials committed to git or pasted into chat; request bursts
   that get the home IP flagged. Throttling is the only protection the home IP has.

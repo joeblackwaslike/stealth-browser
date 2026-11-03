@@ -73,6 +73,7 @@ every subdomain of it:
 | --- | --- | --- |
 | `ebay.com`, `*.ebay.com` | `ebay` | saved login |
 | `reddit.com`, `*.reddit.com` | `reddit` | saved login |
+| `google.com`, `*.google.com` | `google` | none |
 | anything else | `anon` | none |
 
 Matching follows label boundaries, so `notebay.com` and `ebay.com.example` go to `anon`.
@@ -95,8 +96,8 @@ to the store, unless a newer session was uploaded while the request ran.
 | 502 | `{"error":"navigation_failed","message":...}` | Navigation failed or timed out |
 
 A fresh block's `reason` is one of `ebay_challenge_redirect`, `interruption_page`,
-`ebay_error_page`, `captcha`, `verify_human`, or `http_block_status` (the site answered
-403). Session expiry means the eBay request landed on `signin.ebay.com`, or the Reddit
+`ebay_error_page`, `captcha`, `verify_human`, `google_sorry` (Google's `/sorry` page, even
+when served with 429), or `http_block_status` (the site answered 403). Session expiry means the eBay request landed on `signin.ebay.com`, or the Reddit
 request landed on `/login` or came back without a `reddit_session` cookie. On a fresh block or
 a detected expiry, the gateway saves the page HTML under `/state/captures`, keeping the newest 20.
 
@@ -104,9 +105,36 @@ a detected expiry, the gateway saves the page HTML under `/state/captures`, keep
 
 There is one browser, so requests run one at a time in FIFO order. Between two starts
 on the same profile the gateway waits a random gap: 20-40 s for `ebay`, 5-10 s for
-`reddit`, 3-8 s for `anon`. One request runs and up to five wait; a seventh gets
+`reddit`, 8-15 s for `google`, 3-8 s for `anon`. One request runs and up to five wait; a seventh gets
 `queue_full`. A request can wait a minute or more, so give clients a long timeout.
 Navigation times out after 30 s.
+
+### Solver
+
+The gateway can send reCAPTCHA v2 challenges to a 2Captcha-compatible service. It is off
+unless `SOLVER_API_KEY` is set.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SOLVER_API_KEY` | unset | API key. Unset disables the solver. |
+| `SOLVER_BASE_URL` | `https://2captcha.com` | Base URL of the solver service |
+| `SOLVER_MAX_PER_HOUR` | `20` | Positive integer. Solve attempts allowed per hour, failed ones included |
+
+When a fetched page has a reCAPTCHA v2 widget with a sitekey, the gateway asks the solver
+for a token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It
+solves at most once per fetch. If anything fails (solver timeout, provider error, budget
+used up, no form on the page), the gateway returns the original page. That page is classified
+`blocked`, so the profile pauses for 30 minutes and the client gets the usual 423 with
+`Retry-After`.
+
+A solved fetch can take about 2.5 minutes in the worst case: 120 s for the solver plus 30 s
+for navigation. Set client timeouts above that.
+
+Google's terms restrict automated querying of Search. Not yet verified against Google's
+/sorry page.
+
+In the cluster, the key comes from the optional `solverApiKey` entry in the
+`stealth-browser-secrets` secret. Without that entry the pod starts with the solver off.
 
 ## Setup
 
