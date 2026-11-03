@@ -67,7 +67,10 @@ export function createTwoCaptchaSolver(opts: {
 			if (Date.now() >= deadline) throw timedOut();
 			return { ok: false, status: 0 };
 		}
-		if (!response.ok) return { ok: false, status: response.status };
+		if (!response.ok) {
+			await response.body?.cancel().catch(() => undefined);
+			return { ok: false, status: response.status };
+		}
 		let body: unknown;
 		try {
 			body = await response.json();

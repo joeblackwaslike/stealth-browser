@@ -273,6 +273,61 @@ describe("createTwoCaptchaSolver resilience", () => {
 		expect(error.code).toBe("provider_error");
 	});
 
+	it("redacts the api key when the provider echoes it back on submit", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(json({ status: 0, request: "invalid key SECRETKEY" }));
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error;
+		expect(error.message).toContain("<solver-key>");
+		expect(error.message).not.toContain("SECRETKEY");
+	});
+
+	it("redacts the api key when the provider echoes it back on poll", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+			.mockResolvedValueOnce(
+				json({ status: 0, request: "invalid key SECRETKEY" }),
+			);
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error;
+		expect(error.message).toContain("<solver-key>");
+		expect(error.message).not.toContain("SECRETKEY");
+	});
+
+	it("fails immediately on a poll error other than CAPCHA_NOT_READY", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+			.mockResolvedValueOnce(
+				json({ status: 0, request: "ERROR_CAPTCHA_UNSOLVABLE" }),
+			);
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error & { code?: string };
+		expect(error.message).toContain("ERROR_CAPTCHA_UNSOLVABLE");
+		expect(error.code).toBe("provider_error");
+	});
+
+	it("cancels a non-2xx response body instead of leaking it", async () => {
+		const response = new Response("rate limited", { status: 429 });
+		const cancel = vi.spyOn(response.body as ReadableStream, "cancel");
+		const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+		const solver = createTwoCaptchaSolver({
+			...opts,
+			timeoutMs: 20,
+			fetchImpl,
+		});
+		await solver.solve(challenge).catch(() => undefined);
+		expect(cancel).toHaveBeenCalled();
+	});
+
 	it("never passes a raw error's own code through as the solve reason", async () => {
 		const fetchImpl = vi
 			.fn<typeof fetch>()
