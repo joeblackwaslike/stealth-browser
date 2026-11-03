@@ -33,7 +33,13 @@ const RESULTS_URL = "https://www.google.com/search?q=x";
 const RESULTS_HTML = "<html><body>results</body></html>";
 
 /** A connected fake browser whose page shows `firstHtml` until the form is submitted. */
-async function fakePlaywright(opts: { formEnclosesWidget?: boolean } = {}) {
+async function fakePlaywright(
+	opts: {
+		formEnclosesWidget?: boolean;
+		submitDestroysContext?: boolean;
+		navigationStatus?: number | null;
+	} = {},
+) {
 	const firstHtml = await readFile(
 		new URL("./fixtures/google-sorry.html", import.meta.url),
 		"utf8",
@@ -45,6 +51,8 @@ async function fakePlaywright(opts: { formEnclosesWidget?: boolean } = {}) {
 	const submit = new Promise<void>((resolve) => {
 		markSubmitted = resolve;
 	});
+	const navigationStatus =
+		opts.navigationStatus === undefined ? 200 : opts.navigationStatus;
 	const page = {
 		goto: async () => ({ status: () => 429 }),
 		waitForTimeout: async () => {},
@@ -52,14 +60,22 @@ async function fakePlaywright(opts: { formEnclosesWidget?: boolean } = {}) {
 		url: () => (submitted ? RESULTS_URL : SORRY_URL),
 		waitForNavigation: () => {
 			navigationWaits++;
-			return submit.then(() => ({ status: () => 200 }));
+			return submit.then(() =>
+				navigationStatus === null ? null : { status: () => navigationStatus },
+			);
 		},
-		evaluate: async (_fn: unknown, token: string) => {
-			injected.push(token);
-			if (opts.formEnclosesWidget === false) return false;
+		evaluate: async (_fn: unknown, token?: string) => {
+			if (token !== undefined) {
+				injected.push(token);
+				return opts.formEnclosesWidget !== false;
+			}
 			submitted = true;
 			markSubmitted();
-			return true;
+			if (opts.submitDestroysContext) {
+				throw new Error(
+					"Execution context was destroyed, most likely because of a navigation",
+				);
+			}
 		},
 	};
 	const context = {
@@ -124,6 +140,39 @@ describe("createCamoufoxFetcher solving", () => {
 		]);
 	});
 
+	it("counts the solve when the navigation tears down the submit's context", async () => {
+		await fakePlaywright({ submitDestroysContext: true });
+		const { solver } = recordingSolver(async () => "TOKEN");
+		const fetcher = createCamoufoxFetcher("ws://fake/");
+		const result = await fetcher.fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(result).toMatchObject({
+			html: RESULTS_HTML,
+			finalUrl: RESULTS_URL,
+			status: 200,
+			solve: "solved",
+		});
+	});
+
+	it("reports a null status, not the challenge's 429, when the navigation has no response", async () => {
+		await fakePlaywright({ navigationStatus: null });
+		const { solver } = recordingSolver(async () => "TOKEN");
+		const fetcher = createCamoufoxFetcher("ws://fake/");
+		const result = await fetcher.fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(result).toMatchObject({
+			html: RESULTS_HTML,
+			status: null,
+			solve: "solved",
+		});
+	});
+
 	it("returns the pre-solve page when the solver rejects", async () => {
 		const fake = await fakePlaywright();
 		const { solver, seen } = recordingSolver(async () => {
@@ -146,7 +195,7 @@ describe("createCamoufoxFetcher solving", () => {
 	});
 
 	it("returns the pre-solve page when no form encloses the widget", async () => {
-		await fakePlaywright({ formEnclosesWidget: false });
+		const fake = await fakePlaywright({ formEnclosesWidget: false });
 		const { solver } = recordingSolver(async () => "TOKEN");
 		const fetcher = createCamoufoxFetcher("ws://fake/");
 		const result = await fetcher.fetch({
@@ -160,6 +209,7 @@ describe("createCamoufoxFetcher solving", () => {
 			status: 429,
 			solve: "failed",
 		});
+		expect(fake.navigationWaits()).toBe(0);
 	});
 
 	it("never solves or submits without a solver", async () => {
@@ -182,8 +232,8 @@ describe("createCamoufoxFetcher solving", () => {
 		const error = fetcher
 			.fetch({ url: SORRY_URL, waitForTimeout: 0, solver })
 			.catch((e: unknown) => e);
-		await vi.advanceTimersByTimeAsync(200_000);
-		expect(((await error) as Error).message).toContain("exceeded 165000ms");
+		await vi.advanceTimersByTimeAsync(300_000);
+		expect(((await error) as Error).message).toContain("exceeded 195000ms");
 	});
 });
 

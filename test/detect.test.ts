@@ -192,6 +192,39 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({ kind: "rate_limited" });
 	});
 
+	it("blocks google's 429 sorry page so a failed solve pauses the profile", async () => {
+		const verdict = classifyPage({
+			profile: "google",
+			html: await fixture("google-sorry.html"),
+			finalUrl: "https://www.google.com/sorry/index?continue=x",
+			cookieNames: [],
+			status: 429,
+		});
+		expect(verdict).toEqual({ kind: "blocked", reason: "google_sorry" });
+	});
+
+	it("still treats a google 429 outside /sorry as rate_limited", () => {
+		const verdict = classifyPage({
+			profile: "google",
+			html: "<html><body>Too many requests</body></html>",
+			finalUrl: "https://www.google.com/search?q=x",
+			cookieNames: [],
+			status: 429,
+		});
+		expect(verdict).toEqual({ kind: "rate_limited" });
+	});
+
+	it("does not treat a lookalike host's /sorry page as google_sorry", () => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: "<html><body>Too many requests</body></html>",
+			finalUrl: "https://notgoogle.com/sorry/index",
+			cookieNames: [],
+			status: 429,
+		});
+		expect(verdict).toEqual({ kind: "rate_limited" });
+	});
+
 	it.each([
 		['<div class="g-recaptcha extra"></div>', "captcha"],
 		["<div class='h-captcha'></div>", "captcha"],

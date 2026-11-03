@@ -51,15 +51,10 @@ function redactor(wsEndpoint: string): (error: unknown) => Error {
 /**
  * Write the token into the reCAPTCHA response field of the form around the
  * widget and submit it. Resolves with the navigation's response; rejects when
- * no form encloses the widget.
+ * no form encloses the widget or the navigation never arrives.
  */
 async function submitToken(page: Page, token: string) {
-	const navigation = page.waitForNavigation({
-		waitUntil: "domcontentloaded",
-		timeout: NAVIGATION_TIMEOUT_MS,
-	});
-	navigation.catch(() => undefined);
-	const submitted = await page.evaluate((value) => {
+	const filled = await page.evaluate((value) => {
 		const form = document.querySelector(".g-recaptcha")?.closest("form");
 		if (!form) return false;
 		let field = form.querySelector<HTMLTextAreaElement>(
@@ -73,10 +68,22 @@ async function submitToken(page: Page, token: string) {
 			form.append(field);
 		}
 		field.value = value;
-		HTMLFormElement.prototype.submit.call(form);
 		return true;
 	}, token);
-	if (!submitted) throw new Error("no form encloses the challenge");
+	if (!filled) throw new Error("no form encloses the challenge");
+	const navigation = page.waitForNavigation({
+		waitUntil: "domcontentloaded",
+		timeout: NAVIGATION_TIMEOUT_MS,
+	});
+	navigation.catch(() => undefined);
+	// The navigation can tear down the context before this evaluate returns,
+	// so only the navigation decides whether the submit worked.
+	await page
+		.evaluate(() => {
+			const form = document.querySelector(".g-recaptcha")?.closest("form");
+			if (form) HTMLFormElement.prototype.submit.call(form);
+		})
+		.catch(() => undefined);
 	return navigation;
 }
 
@@ -100,7 +107,7 @@ async function solveOnce(
 		return {
 			html: await page.content(),
 			finalUrl: page.url(),
-			status: response?.status() ?? loaded.status,
+			status: response?.status() ?? null,
 			solve: "solved",
 		};
 	} catch {
@@ -190,7 +197,7 @@ export function createCamoufoxFetcher(
 				NAVIGATION_TIMEOUT_MS +
 				req.waitForTimeout +
 				REQUEST_MARGIN_MS +
-				(req.solver ? SOLVER_TIMEOUT_MS : 0);
+				(req.solver ? SOLVER_TIMEOUT_MS + NAVIGATION_TIMEOUT_MS : 0);
 		let timer: NodeJS.Timeout | undefined;
 		const deadline = new Promise<never>((_, reject) => {
 			timer = setTimeout(() => {

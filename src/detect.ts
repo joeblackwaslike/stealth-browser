@@ -49,6 +49,11 @@ export function classifyPage(input: {
 }): PageVerdict {
 	const url = new URL(input.finalUrl);
 
+	// Google serves its /sorry challenge as a 429; it is a block, not a rate
+	// limit, so an unsolved one pauses the profile.
+	if (profileForUrl(url) === "google" && url.pathname.startsWith("/sorry"))
+		return { kind: "blocked", reason: "google_sorry" };
+
 	// A target 429 is a rate limit even when its page carries a challenge
 	// marker; only a block pauses the profile.
 	if (input.status === 429) return { kind: "rate_limited" };
