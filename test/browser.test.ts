@@ -350,3 +350,25 @@ describe("createCamoufoxFetcher", () => {
 		server.close();
 	}, 10_000);
 });
+
+describe("createCamoufoxFetcher solve failure detail", () => {
+	it("carries the failed solve's error class and redacted message", async () => {
+		await fakePlaywright();
+		const secret = "s3cr3t-ws-path";
+		const { solver } = recordingSolver(async () => {
+			const error = new TypeError(`page crashed near ws://fake/${secret}`);
+			throw error;
+		});
+		const fetcher = createCamoufoxFetcher(`ws://fake/${secret}`);
+		const result = await fetcher.fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(result).toMatchObject({
+			solve: "failed",
+			solveReason: "unknown",
+			solveError: "TypeError: page crashed near <camoufox>",
+		});
+	});
+});

@@ -142,7 +142,12 @@ export function createApp(deps: AppDeps): Hono {
 			solve = result.solve;
 			if (result.solve === "failed") {
 				logger.warn(
-					{ profile: resolved, host, reason: result.solveReason },
+					{
+						profile: resolved,
+						host,
+						reason: result.solveReason,
+						err: result.solveError,
+					},
 					"solve_failed",
 				);
 			}

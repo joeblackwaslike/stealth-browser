@@ -18,12 +18,13 @@ export type FetchRequest = {
 
 /**
  * Outcome of the one solve attempt; `solve` is absent when none was made.
- * `solveReason` is the fixed, safe-to-log vocabulary for why it failed.
+ * `solveReason` is the fixed vocabulary for why it failed; `solveError` is the
+ * thrown error's class and message, with the ws endpoint redacted.
  */
 type SolveOutcome =
 	| { solve?: undefined; solveReason?: undefined }
 	| { solve: "solved"; solveReason?: undefined }
-	| { solve: "failed"; solveReason: SolveReason };
+	| { solve: "failed"; solveReason: SolveReason; solveError?: string };
 
 type PageRead = {
 	html: string;
@@ -139,6 +140,7 @@ async function solveOnce(
 	page: Page,
 	solver: Solver,
 	loaded: PageRead,
+	redact: (error: unknown) => Error,
 ): Promise<PageRead> {
 	const challenge = detectChallenge(loaded.html, loaded.finalUrl);
 	if (!challenge) return loaded;
@@ -158,10 +160,12 @@ async function solveOnce(
 			};
 		return { html, finalUrl, status, solve: "solved" };
 	} catch (error) {
+		const safe = redact(error);
 		return {
 			...loaded,
 			solve: "failed",
 			solveReason: classifySolveError(error),
+			solveError: `${safe.name}: ${safe.message}`,
 		};
 	}
 }
@@ -222,7 +226,7 @@ export function createCamoufoxFetcher(
 					status: response?.status() ?? null,
 				};
 				const read = req.solver
-					? await solveOnce(page, req.solver, loaded)
+					? await solveOnce(page, req.solver, loaded, redact)
 					: loaded;
 				return { ...read, storageState: await context.storageState() };
 			} finally {

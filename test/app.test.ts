@@ -416,7 +416,7 @@ describe("app", () => {
 		expect(lines.join("")).not.toContain("SECRET-TOKEN");
 	});
 
-	it("logs the solve failure's fixed-vocabulary reason, never a message", async () => {
+	it("logs the solve failure's fixed-vocabulary reason without the token", async () => {
 		const lines: string[] = [];
 		const logger = pino(
 			{ level: "info" },
@@ -454,6 +454,33 @@ describe("app", () => {
 			"failed",
 			"solved",
 		]);
+	});
+
+	it("logs the failed solve's error detail next to its reason", async () => {
+		const lines: string[] = [];
+		const logger = pino(
+			{ level: "info" },
+			{ write: (line: string) => void lines.push(line) },
+		) as AppDeps["logger"];
+		const app = build(
+			async (r) => ({
+				...okResult(r.url),
+				solve: "failed",
+				solveReason: "provider_error",
+				solveError: "Error: solver rejected the task: ERROR_ZERO_BALANCE",
+			}),
+			logger,
+			{ solve: async () => "TOKEN" },
+			["anon"],
+		);
+		await post(app, { url: "https://example.com/" });
+		const warn = lines
+			.map((line) => JSON.parse(line))
+			.find((l) => l.msg === "solve_failed");
+		expect(warn).toMatchObject({
+			reason: "provider_error",
+			err: "Error: solver rejected the task: ERROR_ZERO_BALANCE",
+		});
 	});
 
 	it("returns 200 and logs a solved outcome with no solve_failed warning", async () => {
