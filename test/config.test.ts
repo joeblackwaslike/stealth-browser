@@ -60,6 +60,26 @@ describe("loadConfig", () => {
 			});
 		});
 
+		it("defaults solver profiles to google, including for an empty value", () => {
+			expect(loadConfig(required).solverProfiles).toEqual(["google"]);
+			expect(
+				loadConfig({ ...required, SOLVER_PROFILES: "" }).solverProfiles,
+			).toEqual(["google"]);
+		});
+
+		it("parses a comma-separated profile list and trims whitespace", () => {
+			expect(
+				loadConfig({ ...required, SOLVER_PROFILES: " google , anon" })
+					.solverProfiles,
+			).toEqual(["google", "anon"]);
+		});
+
+		it("rejects an unknown solver profile name", () => {
+			expect(() =>
+				loadConfig({ ...required, SOLVER_PROFILES: "google,nope" }),
+			).toThrow();
+		});
+
 		it("rejects a non-positive hourly budget", () => {
 			expect(() =>
 				loadConfig({ ...required, SOLVER_MAX_PER_HOUR: "0" }),

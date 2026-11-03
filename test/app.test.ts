@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pino } from "pino";
@@ -62,6 +62,7 @@ function build(
 	fetcher: Fetcher,
 	logger = pino({ level: "silent" }) as AppDeps["logger"],
 	solver?: Solver,
+	solverProfiles: readonly ProfileName[] = ["google"],
 ) {
 	const counted: Fetcher = (req) => {
 		calls++;
@@ -80,6 +81,7 @@ function build(
 		logger,
 		now: clock.now,
 		solver,
+		solverProfiles,
 	});
 }
 
@@ -327,7 +329,7 @@ describe("app", () => {
 		expect((await store.read("reddit"))?.state).toEqual(stateB);
 	});
 
-	it("passes the solver dep into every fetcher call", async () => {
+	it("passes the solver only to profiles on the solver list", async () => {
 		const solver: Solver = { solve: async () => "TOKEN" };
 		const seen: FetchRequest[] = [];
 		const record: Fetcher = async (r) => {
@@ -335,11 +337,58 @@ describe("app", () => {
 			return okResult(r.url);
 		};
 		const withSolver = build(record, undefined, solver);
-		await post(withSolver, { url: "https://example.com/a" });
+		await post(withSolver, { url: "https://www.google.com/a" });
 		await post(withSolver, { url: "https://example.com/b" });
 		const without = build(record);
-		await post(without, { url: "https://example.com/c" });
-		expect(seen.map((r) => r.solver)).toEqual([solver, solver, undefined]);
+		await post(without, { url: "https://www.google.com/c" });
+		expect(seen.map((r) => r.solver)).toEqual([solver, undefined, undefined]);
+	});
+
+	it("passes the solver to anon when the list includes it", async () => {
+		const solver: Solver = { solve: async () => "TOKEN" };
+		const seen: FetchRequest[] = [];
+		const app = build(
+			async (r) => {
+				seen.push(r);
+				return okResult(r.url);
+			},
+			undefined,
+			solver,
+			["google", "anon"],
+		);
+		await post(app, { url: "https://example.com/" });
+		expect(seen.map((r) => r.solver)).toEqual([solver]);
+	});
+
+	it("turns a failed solve on google's sorry page into a 423, then a paused 423", async () => {
+		const sorry = await readFile(
+			new URL("./fixtures/google-sorry.html", import.meta.url),
+			"utf8",
+		);
+		const app = build(
+			async () => ({
+				html: sorry,
+				finalUrl: "https://www.google.com/sorry/index?continue=x",
+				status: 429,
+				storageState: stateWith(),
+				solve: "failed",
+			}),
+			undefined,
+			{ solve: async () => "TOKEN" },
+		);
+		const first = await post(app, { url: "https://www.google.com/search?q=x" });
+		expect(first.status).toBe(423);
+		expect(await first.json()).toEqual({
+			blocked: true,
+			profile: "google",
+			reason: "google_sorry",
+		});
+		const second = await post(app, {
+			url: "https://www.google.com/search?q=x",
+		});
+		expect(second.status).toBe(423);
+		expect(await second.json()).toMatchObject({ reason: "paused" });
+		expect(calls).toBe(1);
 	});
 
 	it("logs the solve outcome, and warns without the token when it failed", async () => {
@@ -359,6 +408,30 @@ describe("app", () => {
 		expect(logs.some((l) => l.level === 40 && l.msg === "solve_failed")).toBe(
 			true,
 		);
+		expect(lines.join("")).not.toContain("SECRET-TOKEN");
+	});
+
+	it("logs the failure's error name, never its message", async () => {
+		const lines: string[] = [];
+		const logger = pino(
+			{ level: "info" },
+			{ write: (line: string) => void lines.push(line) },
+		) as AppDeps["logger"];
+		const app = build(
+			async (r) => ({
+				...okResult(r.url),
+				solve: "failed",
+				solveError: "SolveBudgetExceededError",
+			}),
+			logger,
+			{ solve: async () => "SECRET-TOKEN" },
+			["anon"],
+		);
+		await post(app, { url: "https://example.com/" });
+		const warn = lines
+			.map((line) => JSON.parse(line))
+			.find((l) => l.msg === "solve_failed");
+		expect(warn.reason).toBe("SolveBudgetExceededError");
 		expect(lines.join("")).not.toContain("SECRET-TOKEN");
 	});
 

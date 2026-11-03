@@ -24,6 +24,7 @@ const app = createApp({
 	store: createStateStore(config.stateDir),
 	logger,
 	solver: createSolver(config),
+	solverProfiles: config.solverProfiles,
 });
 
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {

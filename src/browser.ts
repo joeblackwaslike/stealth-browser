@@ -17,6 +17,8 @@ export type FetchResult = {
 	storageState: StorageState;
 	/** Outcome of the one solve attempt; absent when none was made. */
 	solve?: "solved" | "failed";
+	/** Error class name behind a failed solve; never its message. */
+	solveError?: string;
 };
 
 /** Navigates to a URL in the shared browser and returns the rendered page. */
@@ -110,8 +112,12 @@ async function solveOnce(
 			status: response?.status() ?? null,
 			solve: "solved",
 		};
-	} catch {
-		return { ...loaded, solve: "failed" };
+	} catch (error) {
+		return {
+			...loaded,
+			solve: "failed",
+			solveError: error instanceof Error ? error.name : "unknown",
+		};
 	}
 }
 

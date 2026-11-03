@@ -38,6 +38,7 @@ async function fakePlaywright(
 		formEnclosesWidget?: boolean;
 		submitDestroysContext?: boolean;
 		navigationStatus?: number | null;
+		secondPageStillSorry?: boolean;
 	} = {},
 ) {
 	const firstHtml = await readFile(
@@ -56,8 +57,10 @@ async function fakePlaywright(
 	const page = {
 		goto: async () => ({ status: () => 429 }),
 		waitForTimeout: async () => {},
-		content: async () => (submitted ? RESULTS_HTML : firstHtml),
-		url: () => (submitted ? RESULTS_URL : SORRY_URL),
+		content: async () =>
+			submitted && !opts.secondPageStillSorry ? RESULTS_HTML : firstHtml,
+		url: () =>
+			submitted && !opts.secondPageStillSorry ? RESULTS_URL : SORRY_URL,
 		waitForNavigation: () => {
 			navigationWaits++;
 			return submit.then(() =>
@@ -191,6 +194,7 @@ describe("createCamoufoxFetcher solving", () => {
 			finalUrl: SORRY_URL,
 			status: 429,
 			solve: "failed",
+			solveError: "Error",
 		});
 	});
 
@@ -210,6 +214,25 @@ describe("createCamoufoxFetcher solving", () => {
 			solve: "failed",
 		});
 		expect(fake.navigationWaits()).toBe(0);
+	});
+
+	it("returns the page after the submit as solved, even if it still shows the challenge", async () => {
+		const fake = await fakePlaywright({ secondPageStillSorry: true });
+		const { solver, seen } = recordingSolver(async () => "TOKEN");
+		const fetcher = createCamoufoxFetcher("ws://fake/");
+		const result = await fetcher.fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(seen).toHaveLength(1);
+		expect(fake.injected).toEqual(["TOKEN"]);
+		expect(result.html).toContain("g-recaptcha");
+		expect(result).toMatchObject({
+			finalUrl: SORRY_URL,
+			status: 200,
+			solve: "solved",
+		});
 	});
 
 	it("never solves or submits without a solver", async () => {

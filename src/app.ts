@@ -36,6 +36,8 @@ export type AppDeps = {
 	logger: Logger;
 	now?: () => number;
 	solver?: Solver;
+	/** Profiles whose fetches get the solver. */
+	solverProfiles?: readonly ProfileName[];
 };
 
 /** The saved-login file couldn't be read (corrupt JSON, EACCES, EIO). */
@@ -52,6 +54,7 @@ function parseUrl(raw: string): URL | undefined {
 /** Build the gateway app. Every route sits behind the bearer token. */
 export function createApp(deps: AppDeps): Hono {
 	const { fetcher, scheduler, store, logger, solver } = deps;
+	const solverProfiles = new Set(deps.solverProfiles);
 	const now = deps.now ?? Date.now;
 	const readState = (name: LoginProfileName) =>
 		store.read(name).catch((error: unknown) => {
@@ -119,7 +122,7 @@ export function createApp(deps: AppDeps): Hono {
 					url,
 					waitForTimeout,
 					storageState,
-					solver,
+					solver: solverProfiles.has(resolved) ? solver : undefined,
 				});
 				const classified = classifyPage({
 					profile: resolved,
@@ -138,7 +141,10 @@ export function createApp(deps: AppDeps): Hono {
 			verdict = page.kind;
 			solve = result.solve;
 			if (solve === "failed") {
-				logger.warn({ profile: resolved, host }, "solve_failed");
+				logger.warn(
+					{ profile: resolved, host, reason: result.solveError },
+					"solve_failed",
+				);
 			}
 
 			if (page.kind === "blocked") {

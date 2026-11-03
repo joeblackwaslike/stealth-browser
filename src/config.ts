@@ -1,5 +1,6 @@
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
+import { isProfileName, type ProfileName } from "./profiles.js";
 
 /** Validated gateway configuration. */
 export type Config = {
@@ -11,6 +12,8 @@ export type Config = {
 	solverApiKey?: string;
 	solverBaseUrl: string;
 	solverMaxPerHour: number;
+	/** Profiles whose fetches may spend solver budget. */
+	solverProfiles: readonly ProfileName[];
 };
 
 /**
@@ -30,6 +33,17 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 			SOLVER_API_KEY: z.string().min(1).optional(),
 			SOLVER_BASE_URL: z.string().url().default("https://2captcha.com"),
 			SOLVER_MAX_PER_HOUR: z.coerce.number().int().positive().default(20),
+			SOLVER_PROFILES: z
+				.string()
+				.default("google")
+				.transform((value) => value.split(",").map((name) => name.trim()))
+				.pipe(
+					z.array(
+						z.string().refine(isProfileName, {
+							error: (issue) => `unknown profile "${String(issue.input)}"`,
+						}),
+					),
+				),
 		},
 		runtimeEnv: env,
 		emptyStringAsUndefined: true,
@@ -43,5 +57,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		solverApiKey: parsed.SOLVER_API_KEY,
 		solverBaseUrl: parsed.SOLVER_BASE_URL,
 		solverMaxPerHour: parsed.SOLVER_MAX_PER_HOUR,
+		solverProfiles: parsed.SOLVER_PROFILES as ProfileName[],
 	};
 }

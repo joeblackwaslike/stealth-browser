@@ -141,6 +141,7 @@ describe("createSolver", () => {
 		logLevel: "info",
 		solverBaseUrl: "https://2captcha.com",
 		solverMaxPerHour: 20,
+		solverProfiles: ["google"],
 	};
 
 	it("returns undefined without an api key", () => {
