@@ -117,7 +117,7 @@ unless `SOLVER_API_KEY` is set.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SOLVER_API_KEY` | unset | API key. Unset disables the solver. |
-| `SOLVER_BASE_URL` | `https://2captcha.com` | Base URL of the solver service |
+| `SOLVER_BASE_URL` | `https://2captcha.com` | Base URL of the solver service. Must be `https://`. A path prefix such as `/api` is kept |
 | `SOLVER_MAX_PER_HOUR` | `20` | Positive integer. Solve attempts allowed per hour, failed ones included |
 | `SOLVER_PROFILES` | `google` | Comma-separated profile names that may use the solver. Unknown names fail at startup |
 
@@ -129,10 +129,15 @@ lives in memory, so a pod restart resets it. The gateway assumes a single replic
 When a fetched page has a reCAPTCHA v2 widget with a sitekey, the gateway asks the solver
 for a token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It
 solves at most once per fetch. If the solver or the form fails (solver timeout, provider
-error, budget used up, no form on the page), the gateway returns the original page. That
-page is classified `blocked`, so the profile pauses for 30 minutes and the client gets a
-423 with no `Retry-After`. If the solver returns a token and the site rejects it, the gateway
-returns the page after the submit and classifies it like any other page.
+error, budget used up, no form on the page), the gateway returns the original page and
+classifies it as usual. Google's `/sorry` page and a challenge page with any status other
+than 429 are classified `blocked`, so the profile pauses for 30 minutes and the client gets
+a 423 with no `Retry-After`. A non-Google challenge page served with HTTP 429 stays
+`rate_limited`, so the client gets a 429 and the profile does not pause. If the solver returns
+a token and the site rejects it, the gateway returns the page after the submit and
+classifies it like any other page. The `solve_failed` warning in the gateway log carries
+the failure `reason` and the error's class and message as `err`, with the solver key and
+Camoufox endpoint redacted.
 
 With a solver, a request can take about 240 s plus any queue wait. The deadline adds up to
 30 s connect, 30 s navigation, 0-15 s `waitForTimeout`, 15 s margin, 120 s solver and 30 s
