@@ -431,3 +431,26 @@ describe("createTwoCaptchaSolver transport failures", () => {
 		expect(error.message).toContain("ENOTFOUND");
 	});
 });
+
+describe("createTwoCaptchaSolver base url", () => {
+	it.each(["https://provider.test/api", "https://provider.test/api/"])(
+		"keeps the path prefix of %s",
+		async (baseUrl) => {
+			const fetchImpl = vi
+				.fn<typeof fetch>()
+				.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+				.mockResolvedValueOnce(json({ status: 1, request: "TOKEN" }));
+			const solver = createTwoCaptchaSolver({
+				apiKey: "k",
+				baseUrl,
+				pollIntervalMs: 0,
+				fetchImpl,
+			});
+			await solver.solve(challenge);
+			const paths = fetchImpl.mock.calls.map(
+				([url]) => new URL(String(url)).pathname,
+			);
+			expect(paths).toEqual(["/api/in.php", "/api/res.php"]);
+		},
+	);
+});

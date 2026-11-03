@@ -41,6 +41,7 @@ export function createTwoCaptchaSolver(opts: {
 		pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
 		fetchImpl = fetch,
 	} = opts;
+	const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
 
 	const redact = (message: string) =>
 		message.replaceAll(apiKey, "<solver-key>");
@@ -76,7 +77,7 @@ export function createTwoCaptchaSolver(opts: {
 	}> {
 		const remaining = deadline - Date.now();
 		if (remaining <= 0) throw timedOut(lastFailure);
-		const url = new URL(path, baseUrl);
+		const url = new URL(path, base);
 		for (const [name, value] of Object.entries({ key: apiKey, ...params }))
 			url.searchParams.set(name, value);
 		url.searchParams.set("json", "1");
@@ -111,7 +112,7 @@ export function createTwoCaptchaSolver(opts: {
 	async function run(challenge: Challenge): Promise<string> {
 		const deadline = Date.now() + timeoutMs;
 		const submit = await call(
-			"/in.php",
+			"in.php",
 			{
 				method: "userrecaptcha",
 				googlekey: challenge.sitekey,
@@ -146,7 +147,7 @@ export function createTwoCaptchaSolver(opts: {
 				setTimeout(resolve, Math.min(pollIntervalMs, remaining)),
 			);
 			const poll = await call(
-				"/res.php",
+				"res.php",
 				{ action: "get", id: submitted.request },
 				deadline,
 				lastFailure,
