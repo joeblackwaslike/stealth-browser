@@ -40,7 +40,7 @@ export function createTwoCaptchaSolver(opts: {
 		tagSolveReason(new Error("solver timed out"), "timeout");
 
 	// 2Captcha has no documented status for "permanently rejected" vs
-	// "transient" failures, so treat 401/403/404/other-4xx (expect 429) as
+	// "transient" failures, so treat 401/403/404/other-4xx (except 429) as
 	// permanent and everything else (network errors, 429, 5xx, unparseable
 	// bodies) as worth retrying until the deadline.
 	function isPermanentStatus(status: number): boolean {
