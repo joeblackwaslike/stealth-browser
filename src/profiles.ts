@@ -2,7 +2,7 @@
 export type ProfileName = "ebay" | "reddit" | "anon" | "google";
 
 /** Profiles that carry a saved login session. */
-export type LoginProfileName = Exclude<ProfileName, "anon">;
+export type LoginProfileName = Exclude<ProfileName, "anon" | "google">;
 
 /** Routing and pacing rules for one profile. */
 export type Profile = {

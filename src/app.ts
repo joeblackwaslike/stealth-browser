@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import type { Logger } from "pino";
 import { z } from "zod";
-import type { Fetcher } from "./browser.js";
+import type { Fetcher, FetchResult } from "./browser.js";
 import { classifyPage } from "./detect.js";
 import {
 	isLoginProfile,
@@ -10,6 +10,7 @@ import {
 	type ProfileName,
 	profileForUrl,
 } from "./profiles.js";
+import type { Solver } from "./solver/index.js";
 import {
 	type StateStore,
 	type StorageState,
@@ -34,6 +35,7 @@ export type AppDeps = {
 	store: StateStore;
 	logger: Logger;
 	now?: () => number;
+	solver?: Solver;
 };
 
 /** The saved-login file couldn't be read (corrupt JSON, EACCES, EIO). */
@@ -49,7 +51,7 @@ function parseUrl(raw: string): URL | undefined {
 
 /** Build the gateway app. Every route sits behind the bearer token. */
 export function createApp(deps: AppDeps): Hono {
-	const { fetcher, scheduler, store, logger } = deps;
+	const { fetcher, scheduler, store, logger, solver } = deps;
 	const now = deps.now ?? Date.now;
 	const readState = (name: LoginProfileName) =>
 		store.read(name).catch((error: unknown) => {
@@ -65,11 +67,13 @@ export function createApp(deps: AppDeps): Hono {
 		let profile: ProfileName | undefined;
 		let host = "";
 		let verdict = "none";
+		let solve: FetchResult["solve"];
 		const done = (res: Response): Response => {
 			logger.info({
 				profile,
 				host,
 				verdict,
+				solve,
 				status: res.status,
 				ms: now() - started,
 			});
@@ -111,7 +115,12 @@ export function createApp(deps: AppDeps): Hono {
 					storageState = stored?.state;
 					generation = stored?.generation ?? 0;
 				}
-				const fetched = await fetcher({ url, waitForTimeout, storageState });
+				const fetched = await fetcher({
+					url,
+					waitForTimeout,
+					storageState,
+					solver,
+				});
 				const classified = classifyPage({
 					profile: resolved,
 					html: fetched.html,
@@ -127,6 +136,10 @@ export function createApp(deps: AppDeps): Hono {
 				return { result: fetched, page: classified };
 			});
 			verdict = page.kind;
+			solve = result.solve;
+			if (solve === "failed") {
+				logger.warn({ profile: resolved, host }, "solve_failed");
+			}
 
 			if (page.kind === "blocked") {
 				await saveCapture(resolved, "blocked", result.html);

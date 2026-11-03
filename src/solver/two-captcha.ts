@@ -1,7 +1,8 @@
 import type { Challenge } from "../detect.js";
 import type { Solver } from "./types.js";
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+/** How long the solver adapter waits for a token before giving up. */
+export const SOLVER_TIMEOUT_MS = 120_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const NOT_READY = "CAPCHA_NOT_READY";
 
@@ -18,7 +19,7 @@ export function createTwoCaptchaSolver(opts: {
 	const {
 		apiKey,
 		baseUrl,
-		timeoutMs = DEFAULT_TIMEOUT_MS,
+		timeoutMs = SOLVER_TIMEOUT_MS,
 		pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
 		fetchImpl = fetch,
 	} = opts;

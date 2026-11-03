@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { pino } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type AppDeps, createApp } from "../src/app.js";
-import type { Fetcher, FetchResult } from "../src/browser.js";
+import type { Fetcher, FetchRequest, FetchResult } from "../src/browser.js";
 import { PROFILES, type Profile, type ProfileName } from "../src/profiles.js";
+import type { Solver } from "../src/solver/index.js";
 import {
 	createStateStore,
 	type StateStore,
@@ -60,6 +61,7 @@ let calls: number;
 function build(
 	fetcher: Fetcher,
 	logger = pino({ level: "silent" }) as AppDeps["logger"],
+	solver?: Solver,
 ) {
 	const counted: Fetcher = (req) => {
 		calls++;
@@ -77,6 +79,7 @@ function build(
 		store,
 		logger,
 		now: clock.now,
+		solver,
 	});
 }
 
@@ -322,6 +325,41 @@ describe("app", () => {
 		gate.release();
 		expect((await pending).status).toBe(200);
 		expect((await store.read("reddit"))?.state).toEqual(stateB);
+	});
+
+	it("passes the solver dep into every fetcher call", async () => {
+		const solver: Solver = { solve: async () => "TOKEN" };
+		const seen: FetchRequest[] = [];
+		const record: Fetcher = async (r) => {
+			seen.push(r);
+			return okResult(r.url);
+		};
+		const withSolver = build(record, undefined, solver);
+		await post(withSolver, { url: "https://example.com/a" });
+		await post(withSolver, { url: "https://example.com/b" });
+		const without = build(record);
+		await post(without, { url: "https://example.com/c" });
+		expect(seen.map((r) => r.solver)).toEqual([solver, solver, undefined]);
+	});
+
+	it("logs the solve outcome, and warns without the token when it failed", async () => {
+		const lines: string[] = [];
+		const logger = pino(
+			{ level: "info" },
+			{ write: (line: string) => void lines.push(line) },
+		) as AppDeps["logger"];
+		const app = build(
+			async (r) => ({ ...okResult(r.url), solve: "failed" }),
+			logger,
+			{ solve: async () => "SECRET-TOKEN" },
+		);
+		await post(app, { url: "https://example.com/" });
+		const logs = lines.map((line) => JSON.parse(line));
+		expect(logs.find((l) => l.verdict)?.solve).toBe("failed");
+		expect(logs.some((l) => l.level === 40 && l.msg === "solve_failed")).toBe(
+			true,
+		);
+		expect(lines.join("")).not.toContain("SECRET-TOKEN");
 	});
 
 	it("PUT rejects the anon profile with 404 and a malformed body with 400", async () => {
