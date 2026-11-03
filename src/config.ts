@@ -31,7 +31,11 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 			PORT: z.coerce.number().int().positive().max(65535).default(8080),
 			LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 			SOLVER_API_KEY: z.string().min(1).optional(),
-			SOLVER_BASE_URL: z.string().url().default("https://2captcha.com"),
+			SOLVER_BASE_URL: z
+				.string()
+				.url()
+				.startsWith("https://", "must be an https:// url")
+				.default("https://2captcha.com"),
 			SOLVER_MAX_PER_HOUR: z.coerce.number().int().positive().default(20),
 			SOLVER_PROFILES: z
 				.string()

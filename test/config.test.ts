@@ -87,3 +87,20 @@ describe("loadConfig", () => {
 		});
 	});
 });
+
+describe("loadConfig SOLVER_BASE_URL", () => {
+	const base = { GATEWAY_TOKEN: token, CAMOUFOX_WS_URL: "ws://x:3000/p" };
+
+	it("rejects a plain-http solver url, which would send the key in cleartext", () => {
+		expect(() =>
+			loadConfig({ ...base, SOLVER_BASE_URL: "http://2captcha.com" }),
+		).toThrow();
+	});
+
+	it("accepts an https solver url with a path prefix", () => {
+		expect(
+			loadConfig({ ...base, SOLVER_BASE_URL: "https://provider.test/api" })
+				.solverBaseUrl,
+		).toBe("https://provider.test/api");
+	});
+});
