@@ -1,5 +1,5 @@
 /** Saved-login profile a request is routed through. */
-export type ProfileName = "ebay" | "reddit" | "anon";
+export type ProfileName = "ebay" | "reddit" | "anon" | "google";
 
 /** Profiles that carry a saved login session. */
 export type LoginProfileName = Exclude<ProfileName, "anon">;
@@ -26,6 +26,12 @@ export const PROFILES: Readonly<Record<ProfileName, Profile>> = {
 		domains: ["reddit.com"],
 		minGapMs: [5000, 10000],
 		requiresLogin: true,
+	},
+	google: {
+		name: "google",
+		domains: ["google.com"],
+		minGapMs: [8000, 15000],
+		requiresLogin: false,
 	},
 	anon: {
 		name: "anon",
