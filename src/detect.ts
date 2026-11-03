@@ -39,6 +39,19 @@ function blockReason(html: string, url: URL): string | null {
 	return null;
 }
 
+function isGoogleSorry(url: URL): boolean {
+	return profileForUrl(url) === "google" && url.pathname.startsWith("/sorry");
+}
+
+/** True when a page still shows a challenge the classifier blocks: Google's /sorry or a CAPTCHA widget. */
+export function hasChallenge(html: string, finalUrl: string): boolean {
+	const url = URL.parse(finalUrl);
+	return (
+		(url !== null && isGoogleSorry(url)) ||
+		CAPTCHA_WIDGET.test(withoutScriptsAndStyles(html))
+	);
+}
+
 /** Decide whether a fetched page is real content, a bot challenge, or a sign the login expired. */
 export function classifyPage(input: {
 	profile: ProfileName;
@@ -51,8 +64,7 @@ export function classifyPage(input: {
 
 	// Google serves its /sorry challenge as a 429; it is a block, not a rate
 	// limit, so an unsolved one pauses the profile.
-	if (profileForUrl(url) === "google" && url.pathname.startsWith("/sorry"))
-		return { kind: "blocked", reason: "google_sorry" };
+	if (isGoogleSorry(url)) return { kind: "blocked", reason: "google_sorry" };
 
 	// A target 429 is a rate limit even when its page carries a challenge
 	// marker; only a block pauses the profile.

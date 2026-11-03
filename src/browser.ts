@@ -1,5 +1,5 @@
 import { type Browser, firefox, type Page } from "playwright-core";
-import { detectChallenge } from "./detect.js";
+import { detectChallenge, hasChallenge } from "./detect.js";
 import {
 	isSolveReason,
 	SOLVER_TIMEOUT_MS,
@@ -112,16 +112,6 @@ async function submitToken(page: Page, token: string) {
 	return navigation;
 }
 
-/** True when the destination still carries a challenge, including Google's /sorry. */
-function challengeRemains(html: string, finalUrl: string): boolean {
-	if (detectChallenge(html, finalUrl)) return true;
-	try {
-		return new URL(finalUrl).pathname.startsWith("/sorry");
-	} catch {
-		return false;
-	}
-}
-
 function classifySolveError(error: unknown): SolveReason {
 	if (error instanceof SolveBudgetExceededError) return "budget_exceeded";
 	if (error instanceof Error && "code" in error) {
@@ -150,7 +140,7 @@ async function solveOnce(
 		const html = await page.content();
 		const finalUrl = page.url();
 		const status = response?.status() ?? null;
-		if (challengeRemains(html, finalUrl))
+		if (hasChallenge(html, finalUrl))
 			return {
 				html,
 				finalUrl,

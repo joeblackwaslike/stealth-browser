@@ -39,6 +39,7 @@ async function fakePlaywright(
 		submitDestroysContext?: boolean;
 		navigationStatus?: number | null;
 		secondPageStillSorry?: boolean;
+		afterSubmit?: { html: string; url: string };
 	} = {},
 ) {
 	const firstHtml = await readFile(
@@ -58,9 +59,13 @@ async function fakePlaywright(
 		goto: async () => ({ status: () => 429 }),
 		waitForTimeout: async () => {},
 		content: async () =>
-			submitted && !opts.secondPageStillSorry ? RESULTS_HTML : firstHtml,
+			submitted && !opts.secondPageStillSorry
+				? (opts.afterSubmit?.html ?? RESULTS_HTML)
+				: firstHtml,
 		url: () =>
-			submitted && !opts.secondPageStillSorry ? RESULTS_URL : SORRY_URL,
+			submitted && !opts.secondPageStillSorry
+				? (opts.afterSubmit?.url ?? RESULTS_URL)
+				: SORRY_URL,
 		waitForNavigation: () => {
 			navigationWaits++;
 			return submit.then(() =>
@@ -370,5 +375,42 @@ describe("createCamoufoxFetcher solve failure detail", () => {
 			solveReason: "unknown",
 			solveError: "TypeError: page crashed near <camoufox>",
 		});
+	});
+});
+
+describe("createCamoufoxFetcher post-submit challenge check", () => {
+	it("reports challenge_remained for a widget without a sitekey, which the classifier still blocks", async () => {
+		await fakePlaywright({
+			afterSubmit: {
+				html: '<html><body><div class="g-recaptcha"></div></body></html>',
+				url: "https://shop.example.com/verify",
+			},
+		});
+		const { solver } = recordingSolver(async () => "TOKEN");
+		const result = await createCamoufoxFetcher("ws://fake/").fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(result).toMatchObject({
+			solve: "failed",
+			solveReason: "challenge_remained",
+		});
+	});
+
+	it("counts a solve as solved when a non-Google destination merely has a /sorry path", async () => {
+		await fakePlaywright({
+			afterSubmit: {
+				html: RESULTS_HTML,
+				url: "https://shop.example.com/sorry-we-moved",
+			},
+		});
+		const { solver } = recordingSolver(async () => "TOKEN");
+		const result = await createCamoufoxFetcher("ws://fake/").fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(result).toMatchObject({ solve: "solved" });
 	});
 });
