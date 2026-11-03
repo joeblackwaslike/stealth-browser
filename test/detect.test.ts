@@ -320,4 +320,45 @@ describe("detectChallenge", () => {
 			detectChallenge(await fixture("reddit-search-ok.html"), sorryUrl),
 		).toBeNull();
 	});
+
+	it("returns null for a g-recaptcha-response element", () => {
+		expect(
+			detectChallenge(
+				'<textarea class="g-recaptcha-response" data-sitekey="X"></textarea>',
+				sorryUrl,
+			),
+		).toBeNull();
+	});
+
+	it("reads both values when data-s comes before data-sitekey", () => {
+		expect(
+			detectChallenge(
+				'<div class="g-recaptcha" data-s="S1" data-sitekey="K1"></div>',
+				sorryUrl,
+			),
+		).toEqual({
+			type: "recaptcha_v2",
+			sitekey: "K1",
+			pageUrl: sorryUrl,
+			dataS: "S1",
+		});
+	});
+
+	it("accepts single-quoted attributes", () => {
+		expect(
+			detectChallenge(
+				"<div class='g-recaptcha' data-sitekey='K2'></div>",
+				sorryUrl,
+			),
+		).toEqual({ type: "recaptcha_v2", sitekey: "K2", pageUrl: sorryUrl });
+	});
+
+	it("ignores a widget inside a script template", () => {
+		expect(
+			detectChallenge(
+				'<script type="text/template"><div class="g-recaptcha" data-sitekey="K3"></div></script>',
+				sorryUrl,
+			),
+		).toBeNull();
+	});
 });

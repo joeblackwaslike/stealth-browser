@@ -81,7 +81,7 @@ export type Challenge = {
 };
 
 const RECAPTCHA_TAG =
-	/<[a-z][^>]*class=["'][^"']*\bg-recaptcha\b[^"']*["'][^>]*>/i;
+	/<[a-z][^>]*class=["'][^"']*(?<![\w-])g-recaptcha(?![\w-])[^"']*["'][^>]*>/i;
 
 function attribute(tag: string, name: string): string | undefined {
 	return new RegExp(`\\b${name}=["']([^"']*)["']`, "i").exec(tag)?.[1];
