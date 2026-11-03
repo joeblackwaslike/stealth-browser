@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCamoufoxFetcher } from "../src/browser.js";
 import type { Challenge } from "../src/detect.js";
-import type { Solver } from "../src/solver/index.js";
+import { SolveBudgetExceededError, type Solver } from "../src/solver/index.js";
 
 const fakeConnect = vi.hoisted(() => ({
 	browser: undefined as unknown,
@@ -194,7 +194,7 @@ describe("createCamoufoxFetcher solving", () => {
 			finalUrl: SORRY_URL,
 			status: 429,
 			solve: "failed",
-			solveError: "Error",
+			solveReason: "unknown",
 		});
 	});
 
@@ -212,11 +212,12 @@ describe("createCamoufoxFetcher solving", () => {
 			finalUrl: SORRY_URL,
 			status: 429,
 			solve: "failed",
+			solveReason: "no_form",
 		});
 		expect(fake.navigationWaits()).toBe(0);
 	});
 
-	it("returns the page after the submit as solved, even if it still shows the challenge", async () => {
+	it("reports a failed solve with challenge_remained when the destination still shows the challenge", async () => {
 		const fake = await fakePlaywright({ secondPageStillSorry: true });
 		const { solver, seen } = recordingSolver(async () => "TOKEN");
 		const fetcher = createCamoufoxFetcher("ws://fake/");
@@ -231,7 +232,26 @@ describe("createCamoufoxFetcher solving", () => {
 		expect(result).toMatchObject({
 			finalUrl: SORRY_URL,
 			status: 200,
-			solve: "solved",
+			solve: "failed",
+			solveReason: "challenge_remained",
+		});
+	});
+
+	it("reports budget_exceeded when the solver's budget wrapper rejects", async () => {
+		const fake = await fakePlaywright();
+		const { solver } = recordingSolver(async () => {
+			throw new SolveBudgetExceededError(20);
+		});
+		const fetcher = createCamoufoxFetcher("ws://fake/");
+		const result = await fetcher.fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(fake.injected).toEqual([]);
+		expect(result).toMatchObject({
+			solve: "failed",
+			solveReason: "budget_exceeded",
 		});
 	});
 

@@ -1,5 +1,5 @@
 import type { Challenge } from "../detect.js";
-import type { Solver } from "./types.js";
+import { type SolveReason, type Solver, tagSolveReason } from "./types.js";
 
 /** How long the solver adapter waits for a token before giving up. */
 export const SOLVER_TIMEOUT_MS = 120_000;
@@ -27,7 +27,8 @@ export function createTwoCaptchaSolver(opts: {
 	const redact = (message: string) =>
 		message.replaceAll(apiKey, "<solver-key>");
 
-	const timedOut = () => new Error("solver timed out");
+	const timedOut = () =>
+		tagSolveReason(new Error("solver timed out"), "timeout");
 
 	async function call(
 		path: string,
@@ -75,10 +76,16 @@ export function createTwoCaptchaSolver(opts: {
 			deadline,
 		);
 		if (!submit.ok)
-			throw new Error(`solver submit failed: HTTP ${submit.status}`);
+			throw tagSolveReason(
+				new Error(`solver submit failed: HTTP ${submit.status}`),
+				"provider_error",
+			);
 		const submitted = submit.body as ApiReply;
 		if (submitted.status !== 1)
-			throw new Error(`solver rejected the task: ${submitted.request}`);
+			throw tagSolveReason(
+				new Error(`solver rejected the task: ${submitted.request}`),
+				"provider_error",
+			);
 		for (;;) {
 			if (Date.now() >= deadline) throw timedOut();
 			await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -91,7 +98,10 @@ export function createTwoCaptchaSolver(opts: {
 			if (!reply) continue;
 			if (reply.status === 1) return reply.request;
 			if (reply.request !== NOT_READY)
-				throw new Error(`solver failed: ${reply.request}`);
+				throw tagSolveReason(
+					new Error(`solver failed: ${reply.request}`),
+					"provider_error",
+				);
 		}
 	}
 
@@ -104,7 +114,8 @@ export function createTwoCaptchaSolver(opts: {
 					error instanceof Error ? error : new Error(String(error));
 				const redacted = new Error(redact(original.message));
 				redacted.name = original.name;
-				throw redacted;
+				const code = "code" in original ? original.code : "provider_error";
+				throw tagSolveReason(redacted, code as SolveReason);
 			}
 		},
 	};

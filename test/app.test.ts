@@ -411,7 +411,7 @@ describe("app", () => {
 		expect(lines.join("")).not.toContain("SECRET-TOKEN");
 	});
 
-	it("logs the failure's error name, never its message", async () => {
+	it("logs the solve failure's fixed-vocabulary reason, never a message", async () => {
 		const lines: string[] = [];
 		const logger = pino(
 			{ level: "info" },
@@ -421,7 +421,7 @@ describe("app", () => {
 			async (r) => ({
 				...okResult(r.url),
 				solve: "failed",
-				solveError: "SolveBudgetExceededError",
+				solveReason: "budget_exceeded",
 			}),
 			logger,
 			{ solve: async () => "SECRET-TOKEN" },
@@ -431,8 +431,26 @@ describe("app", () => {
 		const warn = lines
 			.map((line) => JSON.parse(line))
 			.find((l) => l.msg === "solve_failed");
-		expect(warn.reason).toBe("SolveBudgetExceededError");
+		expect(warn.reason).toBe("budget_exceeded");
 		expect(lines.join("")).not.toContain("SECRET-TOKEN");
+	});
+
+	it("returns 200 and logs a solved outcome with no solve_failed warning", async () => {
+		const lines: string[] = [];
+		const logger = pino(
+			{ level: "info" },
+			{ write: (line: string) => void lines.push(line) },
+		) as AppDeps["logger"];
+		const app = build(
+			async (r) => ({ ...okResult(r.url), solve: "solved" }),
+			logger,
+			{ solve: async () => "TOKEN" },
+		);
+		const res = await post(app, { url: "https://example.com/" });
+		expect(res.status).toBe(200);
+		const logs = lines.map((line) => JSON.parse(line));
+		expect(logs.find((l) => l.verdict)?.solve).toBe("solved");
+		expect(logs.some((l) => l.msg === "solve_failed")).toBe(false);
 	});
 
 	it("PUT rejects the anon profile with 404 and a malformed body with 400", async () => {

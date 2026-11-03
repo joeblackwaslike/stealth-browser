@@ -1,6 +1,11 @@
 import { type Browser, firefox, type Page } from "playwright-core";
 import { detectChallenge } from "./detect.js";
-import { SOLVER_TIMEOUT_MS, type Solver } from "./solver/index.js";
+import {
+	SOLVER_TIMEOUT_MS,
+	SolveBudgetExceededError,
+	type SolveReason,
+	type Solver,
+} from "./solver/index.js";
 import type { StorageState } from "./state-store.js";
 
 export type FetchRequest = {
@@ -17,8 +22,8 @@ export type FetchResult = {
 	storageState: StorageState;
 	/** Outcome of the one solve attempt; absent when none was made. */
 	solve?: "solved" | "failed";
-	/** Error class name behind a failed solve; never its message. */
-	solveError?: string;
+	/** Fixed, safe-to-log vocabulary for why a failed solve failed. */
+	solveReason?: SolveReason;
 };
 
 /** Navigates to a URL in the shared browser and returns the rendered page. */
@@ -72,11 +77,21 @@ async function submitToken(page: Page, token: string) {
 		field.value = value;
 		return true;
 	}, token);
-	if (!filled) throw new Error("no form encloses the challenge");
-	const navigation = page.waitForNavigation({
-		waitUntil: "domcontentloaded",
-		timeout: NAVIGATION_TIMEOUT_MS,
-	});
+	if (!filled)
+		throw Object.assign(new Error("no form encloses the challenge"), {
+			code: "no_form" as const,
+		});
+	const navigation = page
+		.waitForNavigation({
+			waitUntil: "domcontentloaded",
+			timeout: NAVIGATION_TIMEOUT_MS,
+		})
+		.catch((error) => {
+			throw Object.assign(new Error("navigation failed"), {
+				code: "navigation_failed" as const,
+				cause: error,
+			});
+		});
 	navigation.catch(() => undefined);
 	// The navigation can tear down the context before this evaluate returns,
 	// so only the navigation decides whether the submit worked.
@@ -91,10 +106,32 @@ async function submitToken(page: Page, token: string) {
 
 type PageRead = Omit<FetchResult, "storageState">;
 
+/** True when the destination still carries a challenge, including Google's /sorry. */
+function challengeRemains(html: string, finalUrl: string): boolean {
+	if (detectChallenge(html, finalUrl)) return true;
+	try {
+		return new URL(finalUrl).pathname.startsWith("/sorry");
+	} catch {
+		return false;
+	}
+}
+
+function classifySolveError(error: unknown): SolveReason {
+	if (error instanceof SolveBudgetExceededError) return "budget_exceeded";
+	if (
+		error instanceof Error &&
+		"code" in error &&
+		typeof (error as { code?: unknown }).code === "string"
+	) {
+		return (error as { code: SolveReason }).code;
+	}
+	return "unknown";
+}
+
 /**
  * Solve the page's challenge, if it has one, and read the page it leads to.
- * Any failure keeps the challenge page, which the app classifies as blocked,
- * so the profile pause still applies.
+ * Any failure, or a challenge still present after submitting, keeps the
+ * app's blocked verdict and 30-minute pause.
  */
 async function solveOnce(
 	page: Page,
@@ -106,17 +143,23 @@ async function solveOnce(
 	try {
 		const token = await solver.solve(challenge);
 		const response = await submitToken(page, token);
-		return {
-			html: await page.content(),
-			finalUrl: page.url(),
-			status: response?.status() ?? null,
-			solve: "solved",
-		};
+		const html = await page.content();
+		const finalUrl = page.url();
+		const status = response?.status() ?? null;
+		if (challengeRemains(html, finalUrl))
+			return {
+				html,
+				finalUrl,
+				status,
+				solve: "failed",
+				solveReason: "challenge_remained",
+			};
+		return { html, finalUrl, status, solve: "solved" };
 	} catch (error) {
 		return {
 			...loaded,
 			solve: "failed",
-			solveError: error instanceof Error ? error.name : "unknown",
+			solveReason: classifySolveError(error),
 		};
 	}
 }

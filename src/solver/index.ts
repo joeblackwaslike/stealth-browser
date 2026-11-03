@@ -8,7 +8,11 @@ export {
 	createTwoCaptchaSolver,
 	SOLVER_TIMEOUT_MS,
 } from "./two-captcha.js";
-export { SolveBudgetExceededError, type Solver } from "./types.js";
+export {
+	SolveBudgetExceededError,
+	type SolveReason,
+	type Solver,
+} from "./types.js";
 
 /** Builds the budgeted solver from config, or undefined when no api key is set. */
 export function createSolver(
