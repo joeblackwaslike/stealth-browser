@@ -19,6 +19,13 @@ function isApiReply(value: unknown): value is ApiReply {
 	);
 }
 
+/** Error class, message and cause code of a failed fetch, e.g. "TypeError: fetch failed (ENOTFOUND)". */
+function describeTransportError(error: unknown): string {
+	if (!(error instanceof Error)) return String(error);
+	const code = (error.cause as { code?: unknown } | undefined)?.code;
+	return `${error.name}: ${error.message}${typeof code === "string" ? ` (${code})` : ""}`;
+}
+
 /** Adapter for the 2Captcha v1 API (in.php and res.php, json=1). */
 export function createTwoCaptchaSolver(opts: {
 	apiKey: string;
@@ -38,8 +45,15 @@ export function createTwoCaptchaSolver(opts: {
 	const redact = (message: string) =>
 		message.replaceAll(apiKey, "<solver-key>");
 
-	const timedOut = () =>
-		tagSolveReason(new Error("solver timed out"), "timeout");
+	const timedOut = (lastFailure?: string) =>
+		tagSolveReason(
+			new Error(
+				lastFailure
+					? `solver timed out; last failure: ${lastFailure}`
+					: "solver timed out",
+			),
+			"timeout",
+		);
 
 	// 2Captcha has no documented status for "permanently rejected" vs
 	// "transient" failures, so treat 401/403/404/other-4xx (except 429) as
@@ -53,9 +67,15 @@ export function createTwoCaptchaSolver(opts: {
 		path: string,
 		params: Record<string, string>,
 		deadline: number,
-	): Promise<{ ok: boolean; status: number; body?: ApiReply }> {
+		lastFailure?: string,
+	): Promise<{
+		ok: boolean;
+		status: number;
+		body?: ApiReply;
+		failure?: string;
+	}> {
 		const remaining = deadline - Date.now();
-		if (remaining <= 0) throw timedOut();
+		if (remaining <= 0) throw timedOut(lastFailure);
 		const url = new URL(path, baseUrl);
 		for (const [name, value] of Object.entries({ key: apiKey, ...params }))
 			url.searchParams.set(name, value);
@@ -65,9 +85,10 @@ export function createTwoCaptchaSolver(opts: {
 			response = await fetchImpl(url, {
 				signal: AbortSignal.timeout(Math.max(1, remaining)),
 			});
-		} catch {
-			if (Date.now() >= deadline) throw timedOut();
-			return { ok: false, status: 0 };
+		} catch (error) {
+			// Past the deadline the error is our own abort, not a provider failure.
+			if (Date.now() >= deadline) throw timedOut(lastFailure);
+			return { ok: false, status: 0, failure: describeTransportError(error) };
 		}
 		if (!response.ok) {
 			await response.body?.cancel().catch(() => undefined);
@@ -101,7 +122,9 @@ export function createTwoCaptchaSolver(opts: {
 		);
 		if (!submit.ok)
 			throw tagSolveReason(
-				new Error(`solver submit failed: HTTP ${submit.status}`),
+				new Error(
+					`solver submit failed: ${submit.failure ?? `HTTP ${submit.status}`}`,
+				),
 				"provider_error",
 			);
 		const submitted = submit.body;
@@ -115,9 +138,10 @@ export function createTwoCaptchaSolver(opts: {
 				new Error(`solver rejected the task: ${submitted.request}`),
 				"provider_error",
 			);
+		let lastFailure: string | undefined;
 		for (;;) {
 			const remaining = deadline - Date.now();
-			if (remaining <= 0) throw timedOut();
+			if (remaining <= 0) throw timedOut(lastFailure);
 			await new Promise((resolve) =>
 				setTimeout(resolve, Math.min(pollIntervalMs, remaining)),
 			);
@@ -125,6 +149,7 @@ export function createTwoCaptchaSolver(opts: {
 				"/res.php",
 				{ action: "get", id: submitted.request },
 				deadline,
+				lastFailure,
 			);
 			if (!poll.ok) {
 				if (isPermanentStatus(poll.status))
@@ -132,6 +157,7 @@ export function createTwoCaptchaSolver(opts: {
 						new Error(`solver poll failed: HTTP ${poll.status}`),
 						"provider_error",
 					);
+				lastFailure = poll.failure ?? `HTTP ${poll.status}`;
 				continue;
 			}
 			const reply = poll.body;

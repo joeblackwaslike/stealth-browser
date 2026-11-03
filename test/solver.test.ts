@@ -393,3 +393,41 @@ describe("createTwoCaptchaSolver empty replies", () => {
 		});
 	});
 });
+
+describe("createTwoCaptchaSolver transport failures", () => {
+	const unreachable = () =>
+		new TypeError("fetch failed", {
+			cause: Object.assign(new Error("getaddrinfo"), { code: "ENOTFOUND" }),
+		});
+
+	it("names the transport failure on submit instead of HTTP 0", async () => {
+		const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(unreachable());
+		const solver = createTwoCaptchaSolver({
+			apiKey: "k",
+			baseUrl: "https://2captcha.test",
+			pollIntervalMs: 0,
+			fetchImpl,
+		});
+		const error = (await solver.solve(challenge).catch((e) => e)) as Error;
+		expect(error.message).toContain("TypeError: fetch failed (ENOTFOUND)");
+		expect(error.message).not.toContain("HTTP 0");
+	});
+
+	it("names the last poll failure when the solve times out", async () => {
+		const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+			if (String(url).includes("/in.php"))
+				return json({ status: 1, request: "42" });
+			throw unreachable();
+		});
+		const solver = createTwoCaptchaSolver({
+			apiKey: "k",
+			baseUrl: "https://2captcha.test",
+			timeoutMs: 30,
+			pollIntervalMs: 5,
+			fetchImpl,
+		});
+		const error = (await solver.solve(challenge).catch((e) => e)) as Error;
+		expect(error).toMatchObject({ code: "timeout" });
+		expect(error.message).toContain("ENOTFOUND");
+	});
+});
