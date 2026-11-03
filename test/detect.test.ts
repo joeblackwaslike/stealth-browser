@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { classifyPage } from "../src/detect.js";
+import { classifyPage, detectChallenge } from "../src/detect.js";
 
 const fixture = (name: string) =>
 	readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -276,5 +276,48 @@ describe("classifyPage", () => {
 			cookieNames: [],
 		});
 		expect(verdict).toEqual({ kind: "ok" });
+	});
+});
+
+describe("detectChallenge", () => {
+	const sorryUrl = "https://www.google.com/sorry/index?continue=x";
+
+	it("reads sitekey and data-s from a google sorry page", async () => {
+		expect(
+			detectChallenge(await fixture("google-sorry.html"), sorryUrl),
+		).toEqual({
+			type: "recaptcha_v2",
+			sitekey: "SITEKEY123",
+			pageUrl: sorryUrl,
+			dataS: "DATAS456",
+		});
+	});
+
+	it("omits dataS when the widget has none", async () => {
+		expect(
+			detectChallenge(await fixture("recaptcha-widget.html"), sorryUrl),
+		).toEqual({
+			type: "recaptcha_v2",
+			sitekey: "SITEKEY123",
+			pageUrl: sorryUrl,
+		});
+	});
+
+	it("returns null for a widget without data-sitekey", () => {
+		expect(
+			detectChallenge('<div class="g-recaptcha"></div>', sorryUrl),
+		).toBeNull();
+	});
+
+	it("returns null for the eBay challenge page", async () => {
+		expect(
+			detectChallenge(await fixture("ebay-challenge.html"), sorryUrl),
+		).toBeNull();
+	});
+
+	it("returns null for a normal reddit page", async () => {
+		expect(
+			detectChallenge(await fixture("reddit-search-ok.html"), sorryUrl),
+		).toBeNull();
 	});
 });

@@ -71,3 +71,36 @@ export function classifyPage(input: {
 	}
 	return { kind: "ok" };
 }
+
+/** A CAPTCHA the gateway can hand to a solver. */
+export type Challenge = {
+	type: "recaptcha_v2";
+	sitekey: string;
+	pageUrl: string;
+	dataS?: string;
+};
+
+const RECAPTCHA_TAG =
+	/<[a-z][^>]*class=["'][^"']*\bg-recaptcha\b[^"']*["'][^>]*>/i;
+
+function attribute(tag: string, name: string): string | undefined {
+	return new RegExp(`\\b${name}=["']([^"']*)["']`, "i").exec(tag)?.[1];
+}
+
+/** Find a solvable reCAPTCHA v2 widget on a page, or null when there is none. */
+export function detectChallenge(
+	html: string,
+	finalUrl: string,
+): Challenge | null {
+	const tag = RECAPTCHA_TAG.exec(withoutScriptsAndStyles(html))?.[0];
+	if (!tag) return null;
+	const sitekey = attribute(tag, "data-sitekey");
+	if (!sitekey) return null;
+	const dataS = attribute(tag, "data-s");
+	return {
+		type: "recaptcha_v2",
+		sitekey,
+		pageUrl: finalUrl,
+		...(dataS ? { dataS } : {}),
+	};
+}
