@@ -13,20 +13,7 @@ export class SolveBudgetExceededError extends Error {
 	}
 }
 
-/**
- * Fixed, safe-to-log vocabulary for why a solve didn't produce a usable
- * token. Never derived from an error's message, which may carry secrets.
- */
-export type SolveReason =
-	| "budget_exceeded"
-	| "timeout"
-	| "provider_error"
-	| "no_form"
-	| "navigation_failed"
-	| "challenge_remained"
-	| "unknown";
-
-const SOLVE_REASONS = new Set<SolveReason>([
+const SOLVE_REASONS = [
 	"budget_exceeded",
 	"timeout",
 	"provider_error",
@@ -34,11 +21,17 @@ const SOLVE_REASONS = new Set<SolveReason>([
 	"navigation_failed",
 	"challenge_remained",
 	"unknown",
-]);
+] as const;
+
+/**
+ * Fixed, safe-to-log vocabulary for why a solve didn't produce a usable
+ * token. Never derived from an error's message, which may carry secrets.
+ */
+export type SolveReason = (typeof SOLVE_REASONS)[number];
 
 /** Narrows an untrusted value to the fixed SolveReason vocabulary. */
 export function isSolveReason(code: unknown): code is SolveReason {
-	return typeof code === "string" && SOLVE_REASONS.has(code as SolveReason);
+	return SOLVE_REASONS.includes(code as SolveReason);
 }
 
 /** An adapter error tagged with the reason it maps to, set on `.code`. */
