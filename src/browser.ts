@@ -16,16 +16,22 @@ export type FetchRequest = {
 	solver?: Solver;
 };
 
-export type FetchResult = {
+/**
+ * Outcome of the one solve attempt; `solve` is absent when none was made.
+ * `solveReason` is the fixed, safe-to-log vocabulary for why it failed.
+ */
+type SolveOutcome =
+	| { solve?: undefined; solveReason?: undefined }
+	| { solve: "solved"; solveReason?: undefined }
+	| { solve: "failed"; solveReason: SolveReason };
+
+type PageRead = {
 	html: string;
 	finalUrl: string;
 	status: number | null;
-	storageState: StorageState;
-	/** Outcome of the one solve attempt; absent when none was made. */
-	solve?: "solved" | "failed";
-	/** Fixed, safe-to-log vocabulary for why a failed solve failed. */
-	solveReason?: SolveReason;
-};
+} & SolveOutcome;
+
+export type FetchResult = PageRead & { storageState: StorageState };
 
 /** Navigates to a URL in the shared browser and returns the rendered page. */
 export type Fetcher = (req: FetchRequest) => Promise<FetchResult>;
@@ -104,8 +110,6 @@ async function submitToken(page: Page, token: string) {
 		.catch(() => undefined);
 	return navigation;
 }
-
-type PageRead = Omit<FetchResult, "storageState">;
 
 /** True when the destination still carries a challenge, including Google's /sorry. */
 function challengeRemains(html: string, finalUrl: string): boolean {

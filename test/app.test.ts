@@ -52,7 +52,7 @@ const okResult = (
 	url: string,
 	storageState = stateWith(),
 	html = "<html><body>hello</body></html>",
-): FetchResult => ({ html, finalUrl: url, status: 200, storageState });
+) => ({ html, finalUrl: url, status: 200, storageState });
 
 let dir: string;
 let store: StateStore;
@@ -372,6 +372,7 @@ describe("app", () => {
 				status: 429,
 				storageState: stateWith(),
 				solve: "failed",
+				solveReason: "timeout",
 			}),
 			undefined,
 			{ solve: async () => "TOKEN" },
@@ -398,7 +399,11 @@ describe("app", () => {
 			{ write: (line: string) => void lines.push(line) },
 		) as AppDeps["logger"];
 		const app = build(
-			async (r) => ({ ...okResult(r.url), solve: "failed" }),
+			async (r) => ({
+				...okResult(r.url),
+				solve: "failed",
+				solveReason: "timeout",
+			}),
 			logger,
 			{ solve: async () => "SECRET-TOKEN" },
 		);
@@ -433,6 +438,22 @@ describe("app", () => {
 			.find((l) => l.msg === "solve_failed");
 		expect(warn.reason).toBe("budget_exceeded");
 		expect(lines.join("")).not.toContain("SECRET-TOKEN");
+	});
+
+	it("only types a solve reason on a failed solve", () => {
+		const base = okResult("https://example.com/");
+		// @ts-expect-error a failed solve always carries its reason
+		const noReason: FetchResult = { ...base, solve: "failed" };
+		const solvedWithReason: FetchResult = {
+			...base,
+			solve: "solved",
+			// @ts-expect-error a solved fetch has no failure reason
+			solveReason: "timeout",
+		};
+		expect([noReason.solve, solvedWithReason.solve]).toEqual([
+			"failed",
+			"solved",
+		]);
 	});
 
 	it("returns 200 and logs a solved outcome with no solve_failed warning", async () => {
