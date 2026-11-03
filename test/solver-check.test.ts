@@ -31,10 +31,10 @@ describe("classifyResponse", () => {
 		).toEqual({ kind: "results" });
 	});
 
-	it("falls back to reason unknown for a 423 with a non-JSON body", () => {
+	it("marks a 423 with a non-JSON body unparseable, not a gateway pause reason", () => {
 		expect(classifyResponse(423, new Headers(), "not json")).toEqual({
 			kind: "paused",
-			reason: "unknown",
+			reason: "unparseable",
 			retryAfter: null,
 		});
 	});
@@ -43,5 +43,19 @@ describe("classifyResponse", () => {
 		expect(classifyResponse(500, new Headers(), "")).toEqual({
 			kind: "other",
 		});
+	});
+});
+
+describe("classifyResponse fallthrough", () => {
+	it("keeps reason unknown for a JSON 423 without a reason", () => {
+		expect(classifyResponse(423, new Headers(), "{}")).toMatchObject({
+			reason: "unknown",
+		});
+	});
+
+	it("calls a 200 with neither results nor a /sorry/ marker other, not a challenge", () => {
+		expect(
+			classifyResponse(200, new Headers(), "<html>consent interstitial</html>"),
+		).toEqual({ kind: "other" });
 	});
 });

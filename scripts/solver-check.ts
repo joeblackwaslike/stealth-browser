@@ -25,16 +25,20 @@ export function classifyResponse(
 	body: string,
 ): Classified {
 	if (status === 423) {
-		let reason = "unknown";
+		let reason: string;
 		try {
-			reason = String(JSON.parse(body).reason ?? reason);
-		} catch {}
+			reason = String(JSON.parse(body).reason ?? "unknown");
+		} catch {
+			// Not the gateway's JSON, e.g. a proxy's 423 page.
+			reason = "unparseable";
+		}
 		return { kind: "paused", reason, retryAfter: headers.get("retry-after") };
 	}
 	if (status !== 200) return { kind: "other" };
 	if (body.includes('id="search"') || body.includes('id="rso"'))
 		return { kind: "results" };
-	return { kind: "challenge" };
+	if (body.includes("/sorry/")) return { kind: "challenge" };
+	return { kind: "other" };
 }
 
 function env(name: string): string {
