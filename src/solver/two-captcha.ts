@@ -8,12 +8,14 @@ const NOT_READY = "CAPCHA_NOT_READY";
 
 type ApiReply = { status: number; request: string };
 
+/** A well-formed reply; a success must carry a non-empty task id or token. */
 function isApiReply(value: unknown): value is ApiReply {
+	if (typeof value !== "object" || value === null) return false;
+	const { status, request } = value as ApiReply;
 	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as ApiReply).status === "number" &&
-		typeof (value as ApiReply).request === "string"
+		typeof status === "number" &&
+		typeof request === "string" &&
+		(status !== 1 || request.length > 0)
 	);
 }
 

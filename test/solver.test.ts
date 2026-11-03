@@ -355,3 +355,41 @@ describe("tagSolveReason", () => {
 		expect(code).toBe("timeout");
 	});
 });
+
+describe("createTwoCaptchaSolver empty replies", () => {
+	it("rejects a submit reply with an empty task id instead of polling it", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(json({ status: 1, request: "" }));
+		const solver = createTwoCaptchaSolver({
+			apiKey: "k",
+			baseUrl: "https://2captcha.test",
+			pollIntervalMs: 0,
+			fetchImpl,
+		});
+		await expect(solver.solve(challenge)).rejects.toMatchObject({
+			code: "provider_error",
+		});
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+	});
+
+	it("never resolves with an empty token", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockImplementation(async (url) =>
+				String(url).includes("/in.php")
+					? json({ status: 1, request: "42" })
+					: json({ status: 1, request: "" }),
+			);
+		const solver = createTwoCaptchaSolver({
+			apiKey: "k",
+			baseUrl: "https://2captcha.test",
+			timeoutMs: 30,
+			pollIntervalMs: 5,
+			fetchImpl,
+		});
+		await expect(solver.solve(challenge)).rejects.toMatchObject({
+			code: "timeout",
+		});
+	});
+});
