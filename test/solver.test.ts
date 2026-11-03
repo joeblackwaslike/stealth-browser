@@ -151,3 +151,60 @@ describe("createSolver", () => {
 		expect(createSolver({ ...base, solverApiKey: "k" })).toBeDefined();
 	});
 });
+
+describe("createTwoCaptchaSolver resilience", () => {
+	const opts = {
+		apiKey: "SECRETKEY",
+		baseUrl: "https://2captcha.test",
+		pollIntervalMs: 0,
+	};
+
+	function hangUntilAborted(init?: RequestInit): Promise<Response> {
+		return new Promise((_resolve, reject) => {
+			init?.signal?.addEventListener("abort", () =>
+				reject(new Error("aborted https://2captcha.test/in.php?key=SECRETKEY")),
+			);
+		});
+	}
+
+	it("rejects with a redacted timeout when a request hangs", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockImplementation((_url, init) => hangUntilAborted(init));
+		const solver = createTwoCaptchaSolver({
+			...opts,
+			timeoutMs: 20,
+			fetchImpl,
+		});
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error;
+		expect(error.message).toBe("solver timed out");
+	});
+
+	it("keeps polling through a transient 503 with an html body", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+			.mockResolvedValueOnce(
+				new Response("<html>bad gateway</html>", { status: 503 }),
+			)
+			.mockResolvedValueOnce(json({ status: 1, request: "TOKEN" }));
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		await expect(solver.solve(challenge)).resolves.toBe("TOKEN");
+	});
+
+	it("fails a 503 on submit with the status and no key", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(
+				new Response("<html>SECRETKEY</html>", { status: 503 }),
+			);
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error;
+		expect(error.message).toContain("503");
+		expect(error.message).not.toContain("SECRETKEY");
+	});
+});

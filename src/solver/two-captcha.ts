@@ -26,32 +26,68 @@ export function createTwoCaptchaSolver(opts: {
 	const redact = (message: string) =>
 		message.replaceAll(apiKey, "<solver-key>");
 
-	async function call(path: string, params: Record<string, string>) {
+	const timedOut = () => new Error("solver timed out");
+
+	async function call(
+		path: string,
+		params: Record<string, string>,
+		deadline: number,
+	): Promise<{ ok: boolean; status: number; body?: ApiReply }> {
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) throw timedOut();
 		const url = new URL(path, baseUrl);
 		for (const [name, value] of Object.entries({ key: apiKey, ...params }))
 			url.searchParams.set(name, value);
 		url.searchParams.set("json", "1");
-		const response = await fetchImpl(url);
-		return (await response.json()) as ApiReply;
+		let response: Response;
+		try {
+			response = await fetchImpl(url, {
+				signal: AbortSignal.timeout(Math.max(1, remaining)),
+			});
+		} catch (error) {
+			if (Date.now() >= deadline) throw timedOut();
+			throw error;
+		}
+		if (!response.ok) return { ok: false, status: response.status };
+		try {
+			return {
+				ok: true,
+				status: response.status,
+				body: (await response.json()) as ApiReply,
+			};
+		} catch {
+			if (Date.now() >= deadline) throw timedOut();
+			return { ok: false, status: response.status };
+		}
 	}
 
 	async function run(challenge: Challenge): Promise<string> {
 		const deadline = Date.now() + timeoutMs;
-		const submitted = await call("/in.php", {
-			method: "userrecaptcha",
-			googlekey: challenge.sitekey,
-			pageurl: challenge.pageUrl,
-			...(challenge.dataS ? { "data-s": challenge.dataS } : {}),
-		});
+		const submit = await call(
+			"/in.php",
+			{
+				method: "userrecaptcha",
+				googlekey: challenge.sitekey,
+				pageurl: challenge.pageUrl,
+				...(challenge.dataS ? { "data-s": challenge.dataS } : {}),
+			},
+			deadline,
+		);
+		if (!submit.ok)
+			throw new Error(`solver submit failed: HTTP ${submit.status}`);
+		const submitted = submit.body as ApiReply;
 		if (submitted.status !== 1)
 			throw new Error(`solver rejected the task: ${submitted.request}`);
 		for (;;) {
+			if (Date.now() >= deadline) throw timedOut();
 			await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-			if (Date.now() >= deadline) throw new Error("solver timed out");
-			const reply = await call("/res.php", {
-				action: "get",
-				id: submitted.request,
-			});
+			const poll = await call(
+				"/res.php",
+				{ action: "get", id: submitted.request },
+				deadline,
+			);
+			const reply = poll.body;
+			if (!reply) continue;
 			if (reply.status === 1) return reply.request;
 			if (reply.request !== NOT_READY)
 				throw new Error(`solver failed: ${reply.request}`);
