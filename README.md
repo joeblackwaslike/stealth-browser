@@ -42,7 +42,7 @@ Every route requires `Authorization: Bearer <token>`.
 `POST /content` fetches a page:
 
 ```bash
-curl -sS -m 180 -X POST "$STEALTH_BROWSER_URL/content" \
+curl -sS -m 300 -X POST "$STEALTH_BROWSER_URL/content" \
   -H "Authorization: Bearer $STEALTH_BROWSER_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://old.reddit.com/r/selfhosted/"}'
@@ -87,7 +87,7 @@ to the store, unless a newer session was uploaded while the request ran.
 | 400 | `{"error":"invalid_request","message":...}` | Bad body or disallowed URL |
 | 401 | not JSON | Token missing or wrong |
 | 401 | `{"session_expired":true,"profile":...}` | No saved session, or the site redirected to its sign-in page |
-| 423 | `{"blocked":true,"profile":...,"reason":...}` | The site served a bot check; the profile is now paused for 30 minutes |
+| 423 | `{"blocked":true,"profile":...,"reason":...}` | The site served a bot check; the profile is now paused for 30 minutes. No `Retry-After` header |
 | 423 | same, `"reason":"paused"`, plus `Retry-After` (seconds) | The profile is still paused from an earlier block |
 | 429 | `{"error":"rate_limited","profile":...}` | The site answered 429; no pause |
 | 429 | `{"error":"queue_full"}` | The queue is full |
@@ -119,16 +119,26 @@ unless `SOLVER_API_KEY` is set.
 | `SOLVER_API_KEY` | unset | API key. Unset disables the solver. |
 | `SOLVER_BASE_URL` | `https://2captcha.com` | Base URL of the solver service |
 | `SOLVER_MAX_PER_HOUR` | `20` | Positive integer. Solve attempts allowed per hour, failed ones included |
+| `SOLVER_PROFILES` | `google` | Comma-separated profile names that may use the solver. Unknown names fail at startup |
+
+The solver only runs for profiles in `SOLVER_PROFILES`. To turn solving on elsewhere, list
+the profile, for example `SOLVER_PROFILES=google,anon`. An `anon` page with an ordinary
+reCAPTCHA form gets no solve and no form submit unless `anon` is listed. The hourly budget
+lives in memory, so a pod restart resets it. The gateway assumes a single replica.
 
 When a fetched page has a reCAPTCHA v2 widget with a sitekey, the gateway asks the solver
 for a token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It
-solves at most once per fetch. If anything fails (solver timeout, provider error, budget
-used up, no form on the page), the gateway returns the original page. That page is classified
-`blocked`, so the profile pauses for 30 minutes and the client gets the usual 423 with
-`Retry-After`.
+solves at most once per fetch. If the solver or the form fails (solver timeout, provider
+error, budget used up, no form on the page), the gateway returns the original page. That
+page is classified `blocked`, so the profile pauses for 30 minutes and the client gets a
+423 with no `Retry-After`. If the solver returns a token and the site rejects it, the gateway
+returns the page after the submit and classifies it like any other page.
 
-A solved fetch can take about 2.5 minutes in the worst case: 120 s for the solver plus 30 s
-for navigation. Set client timeouts above that.
+With a solver, a request can take about 240 s plus any queue wait. The deadline adds up to
+30 s connect, 30 s navigation, 0-15 s `waitForTimeout`, 15 s margin, 120 s solver and 30 s
+for the submit navigation. That is 228 s at the default `waitForTimeout` and 240 s at most.
+The browser slot can stay held up to 10 s past the deadline (250 s), and each request queued
+ahead adds that much. Set client timeouts to 300 s or more.
 
 Google's terms restrict automated querying of Search. Not yet verified against Google's
 /sorry page.
