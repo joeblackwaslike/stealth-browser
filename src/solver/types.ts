@@ -44,6 +44,9 @@ export function isSolveReason(code: unknown): code is SolveReason {
 /** An adapter error tagged with the reason it maps to, set on `.code`. */
 export type SolveReasonError = Error & { code: SolveReason };
 
-export function tagSolveReason(error: Error, code: SolveReason): Error {
+export function tagSolveReason(
+	error: Error,
+	code: SolveReason,
+): SolveReasonError {
 	return Object.assign(error, { code });
 }

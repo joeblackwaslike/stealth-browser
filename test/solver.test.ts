@@ -7,6 +7,7 @@ import {
 	SolveBudgetExceededError,
 	withBudget,
 } from "../src/solver/index.js";
+import { type SolveReason, tagSolveReason } from "../src/solver/types.js";
 
 const challenge: Challenge = {
 	type: "recaptcha_v2",
@@ -344,5 +345,13 @@ describe("createTwoCaptchaSolver resilience", () => {
 			.catch((e: Error) => e)) as Error & { code?: string };
 		expect(error.code).not.toBe("ECONNRESET");
 		expect(error.code).toBe("provider_error");
+	});
+});
+
+describe("tagSolveReason", () => {
+	it("returns the error typed with its reason, so callers read .code without a cast", () => {
+		const tagged = tagSolveReason(new Error("x"), "timeout");
+		const code: SolveReason = tagged.code;
+		expect(code).toBe("timeout");
 	});
 });
