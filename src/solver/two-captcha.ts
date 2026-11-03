@@ -8,6 +8,15 @@ const NOT_READY = "CAPCHA_NOT_READY";
 
 type ApiReply = { status: number; request: string };
 
+function isApiReply(value: unknown): value is ApiReply {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as ApiReply).status === "number" &&
+		typeof (value as ApiReply).request === "string"
+	);
+}
+
 /** Adapter for the 2Captcha v1 API (in.php and res.php, json=1). */
 export function createTwoCaptchaSolver(opts: {
 	apiKey: string;
@@ -59,16 +68,18 @@ export function createTwoCaptchaSolver(opts: {
 			return { ok: false, status: 0 };
 		}
 		if (!response.ok) return { ok: false, status: response.status };
+		let body: unknown;
 		try {
-			return {
-				ok: true,
-				status: response.status,
-				body: (await response.json()) as ApiReply,
-			};
+			body = await response.json();
 		} catch {
 			if (Date.now() >= deadline) throw timedOut();
 			return { ok: false, status: response.status };
 		}
+		if (!isApiReply(body)) {
+			if (Date.now() >= deadline) throw timedOut();
+			return { ok: false, status: response.status };
+		}
+		return { ok: true, status: response.status, body };
 	}
 
 	async function run(challenge: Challenge): Promise<string> {
@@ -88,15 +99,23 @@ export function createTwoCaptchaSolver(opts: {
 				new Error(`solver submit failed: HTTP ${submit.status}`),
 				"provider_error",
 			);
-		const submitted = submit.body as ApiReply;
+		const submitted = submit.body;
+		if (!submitted)
+			throw tagSolveReason(
+				new Error("solver submit failed: empty reply"),
+				"provider_error",
+			);
 		if (submitted.status !== 1)
 			throw tagSolveReason(
 				new Error(`solver rejected the task: ${submitted.request}`),
 				"provider_error",
 			);
 		for (;;) {
-			if (Date.now() >= deadline) throw timedOut();
-			await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+			const remaining = deadline - Date.now();
+			if (remaining <= 0) throw timedOut();
+			await new Promise((resolve) =>
+				setTimeout(resolve, Math.min(pollIntervalMs, remaining)),
+			);
 			const poll = await call(
 				"/res.php",
 				{ action: "get", id: submitted.request },

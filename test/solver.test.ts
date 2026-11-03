@@ -221,6 +221,58 @@ describe("createTwoCaptchaSolver resilience", () => {
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
 	});
 
+	it("clamps the poll sleep to the remaining budget", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockImplementation(async (url) =>
+				String(url).includes("/in.php")
+					? json({ status: 1, request: "42" })
+					: json({ status: 0, request: "CAPCHA_NOT_READY" }),
+			);
+		const solver = createTwoCaptchaSolver({
+			...opts,
+			timeoutMs: 30,
+			pollIntervalMs: 5_000,
+			fetchImpl,
+		});
+		const started = Date.now();
+		await expect(solver.solve(challenge)).rejects.toThrow(/timed out/i);
+		expect(Date.now() - started).toBeLessThan(1_000);
+	});
+
+	it("treats a null poll reply as a transient tick, not a crash", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+			.mockResolvedValueOnce(json(null))
+			.mockResolvedValueOnce(json({ status: 1, request: "TOKEN" }));
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		await expect(solver.solve(challenge)).resolves.toBe("TOKEN");
+	});
+
+	it("treats a poll reply missing request as a transient tick", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+			.mockResolvedValueOnce(json({ status: 1 }))
+			.mockResolvedValueOnce(json({ status: 1, request: "TOKEN" }));
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		await expect(solver.solve(challenge)).resolves.toBe("TOKEN");
+	});
+
+	it("fails a non-object submit reply as a provider error", async () => {
+		const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(json(null));
+		const solver = createTwoCaptchaSolver({
+			...opts,
+			timeoutMs: 20,
+			fetchImpl,
+		});
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error & { code?: string };
+		expect(error.code).toBe("provider_error");
+	});
+
 	it("never passes a raw error's own code through as the solve reason", async () => {
 		const fetchImpl = vi
 			.fn<typeof fetch>()
