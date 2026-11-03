@@ -395,3 +395,19 @@ describe("detectChallenge", () => {
 		).toBeNull();
 	});
 });
+
+describe("detectChallenge attribute boundaries", () => {
+	it("ignores an attribute whose name only ends in data-sitekey", () => {
+		const html =
+			'<div class="g-recaptcha" not-data-sitekey="WRONG" data-sitekey="RIGHT"></div>';
+		expect(detectChallenge(html, "https://example.com/")?.sitekey).toBe(
+			"RIGHT",
+		);
+		expect(
+			detectChallenge(
+				'<div class="g-recaptcha" not-data-sitekey="WRONG"></div>',
+				"https://example.com/",
+			),
+		).toBeNull();
+	});
+});

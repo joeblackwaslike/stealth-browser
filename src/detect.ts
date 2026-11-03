@@ -101,7 +101,7 @@ const RECAPTCHA_TAG =
 	/<[a-z][^>]*class=["'][^"']*(?<![\w-])g-recaptcha(?![\w-])[^"']*["'][^>]*>/i;
 
 function attribute(tag: string, name: string): string | undefined {
-	return new RegExp(`\\b${name}=["']([^"']*)["']`, "i").exec(tag)?.[1];
+	return new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(tag)?.[1];
 }
 
 /** Find a solvable reCAPTCHA v2 widget on a page, or null when there is none. */
