@@ -237,6 +237,26 @@ describe("createCamoufoxFetcher solving", () => {
 		});
 	});
 
+	it("falls back to unknown for an error carrying an arbitrary code", async () => {
+		const fake = await fakePlaywright();
+		const { solver } = recordingSolver(async () => {
+			throw Object.assign(new Error("socket reset"), {
+				code: "ECONNRESET",
+			});
+		});
+		const fetcher = createCamoufoxFetcher("ws://fake/");
+		const result = await fetcher.fetch({
+			url: SORRY_URL,
+			waitForTimeout: 0,
+			solver,
+		});
+		expect(fake.injected).toEqual([]);
+		expect(result).toMatchObject({
+			solve: "failed",
+			solveReason: "unknown",
+		});
+	});
+
 	it("reports budget_exceeded when the solver's budget wrapper rejects", async () => {
 		const fake = await fakePlaywright();
 		const { solver } = recordingSolver(async () => {

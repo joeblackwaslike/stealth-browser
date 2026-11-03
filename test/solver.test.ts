@@ -93,7 +93,6 @@ describe("createTwoCaptchaSolver", () => {
 		const error = (await solver
 			.solve(challenge)
 			.catch((e: Error) => e)) as Error;
-		expect(error.message).toContain("<solver-key>");
 		expect(error.message).not.toContain("SECRETKEY");
 	});
 
@@ -207,5 +206,36 @@ describe("createTwoCaptchaSolver resilience", () => {
 			.catch((e: Error) => e)) as Error;
 		expect(error.message).toContain("503");
 		expect(error.message).not.toContain("SECRETKEY");
+	});
+
+	it("fails a poll immediately on a permanent HTTP status, without retrying", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+			.mockResolvedValueOnce(new Response("forbidden", { status: 401 }));
+		const solver = createTwoCaptchaSolver({ ...opts, fetchImpl });
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error;
+		expect(error.message).toBe("solver poll failed: HTTP 401");
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	it("never passes a raw error's own code through as the solve reason", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockRejectedValue(
+				Object.assign(new Error("socket reset"), { code: "ECONNRESET" }),
+			);
+		const solver = createTwoCaptchaSolver({
+			...opts,
+			timeoutMs: 20,
+			fetchImpl,
+		});
+		const error = (await solver
+			.solve(challenge)
+			.catch((e: Error) => e)) as Error & { code?: string };
+		expect(error.code).not.toBe("ECONNRESET");
+		expect(error.code).toBe("provider_error");
 	});
 });

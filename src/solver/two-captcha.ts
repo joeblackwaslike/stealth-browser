@@ -1,5 +1,5 @@
 import type { Challenge } from "../detect.js";
-import { type SolveReason, type Solver, tagSolveReason } from "./types.js";
+import { isSolveReason, type Solver, tagSolveReason } from "./types.js";
 
 /** How long the solver adapter waits for a token before giving up. */
 export const SOLVER_TIMEOUT_MS = 120_000;
@@ -30,6 +30,14 @@ export function createTwoCaptchaSolver(opts: {
 	const timedOut = () =>
 		tagSolveReason(new Error("solver timed out"), "timeout");
 
+	// 2Captcha has no documented status for "permanently rejected" vs
+	// "transient" failures, so treat 401/403/404/other-4xx (expect 429) as
+	// permanent and everything else (network errors, 429, 5xx, unparseable
+	// bodies) as worth retrying until the deadline.
+	function isPermanentStatus(status: number): boolean {
+		return status >= 400 && status < 500 && status !== 429;
+	}
+
 	async function call(
 		path: string,
 		params: Record<string, string>,
@@ -46,9 +54,9 @@ export function createTwoCaptchaSolver(opts: {
 			response = await fetchImpl(url, {
 				signal: AbortSignal.timeout(Math.max(1, remaining)),
 			});
-		} catch (error) {
+		} catch {
 			if (Date.now() >= deadline) throw timedOut();
-			throw error;
+			return { ok: false, status: 0 };
 		}
 		if (!response.ok) return { ok: false, status: response.status };
 		try {
@@ -94,6 +102,14 @@ export function createTwoCaptchaSolver(opts: {
 				{ action: "get", id: submitted.request },
 				deadline,
 			);
+			if (!poll.ok) {
+				if (isPermanentStatus(poll.status))
+					throw tagSolveReason(
+						new Error(`solver poll failed: HTTP ${poll.status}`),
+						"provider_error",
+					);
+				continue;
+			}
 			const reply = poll.body;
 			if (!reply) continue;
 			if (reply.status === 1) return reply.request;
@@ -114,8 +130,11 @@ export function createTwoCaptchaSolver(opts: {
 					error instanceof Error ? error : new Error(String(error));
 				const redacted = new Error(redact(original.message));
 				redacted.name = original.name;
-				const code = "code" in original ? original.code : "provider_error";
-				throw tagSolveReason(redacted, code as SolveReason);
+				const code = "code" in original ? original.code : undefined;
+				throw tagSolveReason(
+					redacted,
+					isSolveReason(code) ? code : "provider_error",
+				);
 			}
 		},
 	};

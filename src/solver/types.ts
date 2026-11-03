@@ -26,6 +26,21 @@ export type SolveReason =
 	| "challenge_remained"
 	| "unknown";
 
+const SOLVE_REASONS = new Set<SolveReason>([
+	"budget_exceeded",
+	"timeout",
+	"provider_error",
+	"no_form",
+	"navigation_failed",
+	"challenge_remained",
+	"unknown",
+]);
+
+/** Narrows an untrusted value to the fixed SolveReason vocabulary. */
+export function isSolveReason(code: unknown): code is SolveReason {
+	return typeof code === "string" && SOLVE_REASONS.has(code as SolveReason);
+}
+
 /** An adapter error tagged with the reason it maps to, set on `.code`. */
 export type SolveReasonError = Error & { code: SolveReason };
 

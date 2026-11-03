@@ -9,6 +9,7 @@ export {
 	SOLVER_TIMEOUT_MS,
 } from "./two-captcha.js";
 export {
+	isSolveReason,
 	SolveBudgetExceededError,
 	type SolveReason,
 	type Solver,

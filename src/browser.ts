@@ -1,6 +1,7 @@
 import { type Browser, firefox, type Page } from "playwright-core";
 import { detectChallenge } from "./detect.js";
 import {
+	isSolveReason,
 	SOLVER_TIMEOUT_MS,
 	SolveBudgetExceededError,
 	type SolveReason,
@@ -118,12 +119,9 @@ function challengeRemains(html: string, finalUrl: string): boolean {
 
 function classifySolveError(error: unknown): SolveReason {
 	if (error instanceof SolveBudgetExceededError) return "budget_exceeded";
-	if (
-		error instanceof Error &&
-		"code" in error &&
-		typeof (error as { code?: unknown }).code === "string"
-	) {
-		return (error as { code: SolveReason }).code;
+	if (error instanceof Error && "code" in error) {
+		const code = (error as { code?: unknown }).code;
+		if (isSolveReason(code)) return code;
 	}
 	return "unknown";
 }

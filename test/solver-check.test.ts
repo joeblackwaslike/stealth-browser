@@ -24,4 +24,24 @@ describe("classifyResponse", () => {
 			classifyResponse(423, new Headers({ "retry-after": "900" }), body),
 		).toEqual({ kind: "paused", reason: "paused", retryAfter: "900" });
 	});
+
+	it("calls a 200 with the search container a results page", () => {
+		expect(
+			classifyResponse(200, new Headers(), '<div id="search"></div>'),
+		).toEqual({ kind: "results" });
+	});
+
+	it("falls back to reason unknown for a 423 with a non-JSON body", () => {
+		expect(classifyResponse(423, new Headers(), "not json")).toEqual({
+			kind: "paused",
+			reason: "unknown",
+			retryAfter: null,
+		});
+	});
+
+	it("calls any other status other", () => {
+		expect(classifyResponse(500, new Headers(), "")).toEqual({
+			kind: "other",
+		});
+	});
 });
