@@ -8,7 +8,7 @@ export type PageVerdict =
 	| { kind: "rate_limited" };
 
 const CAPTCHA_WIDGET =
-	/class=["'][^"']*\b(?:g-recaptcha|h-captcha)\b[^"']*["']|id=["']captchacharacters["']/i;
+	/class=["'][^"']*(?<![\w-])(?:g-recaptcha|h-captcha)(?![\w-])[^"']*["']|id=["']captchacharacters["']/i;
 const VERIFY_HUMAN = /verify\s+you\s+are\s+human/i;
 const INTERRUPTION_TITLE = /Pardon Our Interruption/i;
 const EBAY_ERROR_TITLE = /^Error Page/i;

@@ -83,6 +83,26 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({ kind: "ok" });
 	});
 
+	it("treats the hidden response textarea of an invisible reCAPTCHA as ok", () => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: `<html><head><title>Your Go-to Marketplace</title></head><body><div class="grecaptcha-badge"><div class="grecaptcha-error"></div><textarea id="g-recaptcha-response-100000" name="g-recaptcha-response" class="g-recaptcha-response" style="display: none;"></textarea></div><p>listings</p></body></html>`,
+			finalUrl: "https://www.mercari.com/",
+			cookieNames: [],
+		});
+		expect(verdict).toEqual({ kind: "ok" });
+	});
+
+	it("treats an hCaptcha response textarea as ok", () => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: `<html><body><textarea name="h-captcha-response" class="h-captcha-response"></textarea></body></html>`,
+			finalUrl: "https://example.com/",
+			cookieNames: [],
+		});
+		expect(verdict).toEqual({ kind: "ok" });
+	});
+
 	it("returns ok for a real Reddit search page", async () => {
 		const verdict = classifyPage({
 			profile: "reddit",
