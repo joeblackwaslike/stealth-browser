@@ -144,6 +144,11 @@ as a block: a widget outside a form, an invisible widget (`data-size="invisible"
 bound to a button (a one-click unsubscribe or vote), or a form a person fills in (a login
 form with text inputs, a comment form with a rich-text editor).
 
+The guard is structural. A form made only of hidden fields, a visible reCAPTCHA widget and a
+submit button, such as an unsubscribe or confirm form, looks the same as a challenge form, so
+with `SOLVER_API_KEY` set it is solved and submitted. The hourly budget caps the spend, and
+narrowing the guard is tracked.
+
 When a fetched page has such a form with a sitekey, the gateway checks the form again in the
 live page, before asking the solver and again before filling it, and gives up with `no_form`
 if the form does not pass. Otherwise it asks the solver for a token, fills

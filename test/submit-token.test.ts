@@ -158,6 +158,46 @@ describe("submitToken against a DOM", () => {
 		expect(result).toMatchObject({ solve: "failed", solveReason: "no_form" });
 	});
 
+	it.each([
+		[
+			"the hidden attribute",
+			'<div class="g-recaptcha" data-sitekey="SITEKEY123" hidden></div>',
+		],
+		[
+			"display:none",
+			'<div class="g-recaptcha" data-sitekey="SITEKEY123" style="display:none"></div>',
+		],
+		[
+			"visibility:hidden",
+			'<div class="g-recaptcha" data-sitekey="SITEKEY123" style="visibility:hidden"></div>',
+		],
+		[
+			"a display:none ancestor",
+			'<div style="display:none"><div class="g-recaptcha" data-sitekey="SITEKEY123"></div></div>',
+		],
+	])(
+		"neither solves nor submits for a widget hidden by %s",
+		async (_name, widget) => {
+			const { submitted } = domPage(
+				`<form id="captcha-form" action="/x"><input type="hidden" name="t">${widget}<button>Go</button></form>`,
+			);
+			const solve = vi.fn(async () => "TOKEN");
+			const result = await fetchWithToken(solve);
+			expect(solve).not.toHaveBeenCalled();
+			expect(submitted).toEqual([]);
+			expect(result).toMatchObject({ solve: "failed", solveReason: "no_form" });
+		},
+	);
+
+	it("still solves a normally rendered widget", async () => {
+		const { submitted } = domPage(
+			`<form id="captcha-form" action="/x"><input type="hidden" name="t"><div><div class="g-recaptcha" data-sitekey="SITEKEY123" style="display:block"></div></div><button>Go</button></form>`,
+		);
+		const result = await fetchWithToken();
+		expect(submitted).toEqual([{ formId: "captcha-form", token: "TOKEN" }]);
+		expect(result).toMatchObject({ solve: "solved" });
+	});
+
 	it("neither solves nor submits for a widget that only exists inside noscript", async () => {
 		const { submitted } = domPage("<noscript></noscript><p>content</p>", {
 			served: `<html><body><noscript><form>${WIDGET}</form></noscript><p>content</p></body></html>`,
