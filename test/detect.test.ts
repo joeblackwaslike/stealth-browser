@@ -1,13 +1,18 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { classifyPage, detectChallenge, hasChallenge } from "../src/detect.js";
+import {
+	challengeFormWidget,
+	classifyPage,
+	detectChallenge,
+	hasChallenge,
+} from "../src/detect.js";
 
 const fixture = (name: string) =>
 	readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 
 const WIDGET = '<div class="g-recaptcha" data-sitekey="K"></div>';
-const challengeForm = (widget = WIDGET) =>
-	`<form action="/verify" method="post"><input type="hidden" name="continue" value="x">${widget}<textarea name="g-recaptcha-response" class="g-recaptcha-response"></textarea><input type="submit" value="Continue"></form>`;
+const challengeForm = (widget = WIDGET, extra = "") =>
+	`<form action="/verify" method="post"><input type="hidden" name="continue" value="x">${widget}<textarea name="g-recaptcha-response" class="g-recaptcha-response"></textarea>${extra}<input type="submit" value="Continue"></form>`;
 const contentForm = (field: string) =>
 	`<form action="/signup" method="post">${field}${WIDGET}<button type="submit">Go</button></form>`;
 const classifyAnon = (body: string) =>
@@ -79,6 +84,77 @@ describe("classifyPage", () => {
 		['<input type="radio" name="r">'],
 	])("returns ok for a widget in a content form with %s", (field) => {
 		expect(classifyAnon(contentForm(field))).toEqual({ kind: "ok" });
+	});
+
+	it.each([
+		['<input type="image" src="go.png" alt="Go">'],
+		['<input type="reset">'],
+		['<input type="button" value="Retry">'],
+		["<button>Retry</button>"],
+	])("still blocks a challenge form that also has %s", (field) => {
+		expect(classifyAnon(challengeForm(WIDGET, field))).toMatchObject({
+			kind: "blocked",
+			marker: "captcha_widget:g-recaptcha",
+		});
+	});
+
+	it("returns ok for a challenge-shaped form that also has a non-response textarea", () => {
+		expect(
+			classifyAnon(challengeForm(WIDGET, '<textarea name="notes"></textarea>')),
+		).toEqual({ kind: "ok" });
+	});
+
+	it("blocks the rendered google sorry form on any URL", async () => {
+		expect(
+			classifyPage({
+				profile: "anon",
+				html: await fixture("google-sorry.html"),
+				finalUrl: "https://example.com/",
+				cookieNames: [],
+			}),
+		).toEqual({
+			kind: "blocked",
+			reason: "captcha",
+			marker: "captcha_widget:g-recaptcha",
+		});
+	});
+
+	const unsubscribeForm =
+		'<form action="/unsubscribe" method="post"><input type="hidden" name="email" value="a@b.c"><button class="g-recaptcha" data-sitekey="K" data-callback="onSubmit">Unsubscribe</button></form>';
+	const commentForm = (editor: string) =>
+		`<form action="/comment" method="post">${editor}<input type="hidden" name="body">${WIDGET}<button type="submit">Post</button></form>`;
+
+	it.each([
+		["a button-bound one-click action", unsubscribeForm],
+		[
+			"an invisible div widget",
+			challengeForm(
+				'<div class="g-recaptcha" data-sitekey="K" data-size="invisible"></div>',
+			),
+		],
+		[
+			"a contenteditable comment editor",
+			commentForm('<div contenteditable="true" class="editor"></div>'),
+		],
+		[
+			"a bare contenteditable attribute",
+			commentForm('<div contenteditable class="editor"></div>'),
+		],
+		[
+			"a plaintext-only editor",
+			commentForm("<p contenteditable='plaintext-only'></p>"),
+		],
+	])("treats %s as content, not a challenge", (_name, body) => {
+		const html = `<html><head><title>x</title></head><body>${body}</body></html>`;
+		expect(classifyAnon(body)).toEqual({ kind: "ok" });
+		expect(challengeFormWidget(html)).toBeNull();
+		expect(detectChallenge(html, "https://example.com/")).toBeNull();
+	});
+
+	it('still blocks a challenge form whose only editable flag is contenteditable="false"', () => {
+		expect(
+			classifyAnon(commentForm('<div contenteditable="false"></div>')),
+		).toMatchObject({ kind: "blocked", marker: "captcha_widget:g-recaptcha" });
 	});
 
 	it("returns ok for a widget outside any form", () => {

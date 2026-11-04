@@ -54,19 +54,38 @@ function isChallengeField(tag: string, kind: string): boolean {
 	);
 }
 
+const EDITABLE =
+	/<[a-z][^>]*?\scontenteditable(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?/gi;
+
+function hasEditable(form: string): boolean {
+	for (const [, double, single, bare] of form.matchAll(EDITABLE))
+		if ((double ?? single ?? bare ?? "").toLowerCase() !== "false") return true;
+	return false;
+}
+
+function isVisibleDivWidget(tag: string): boolean {
+	return (
+		/^<div\b/i.test(tag) &&
+		attribute(tag, "data-size")?.toLowerCase() !== "invisible"
+	);
+}
+
 /**
- * Return the opening tag of the first g-recaptcha element when it sits inside a
- * form whose only fields are hidden inputs, buttons and the response textarea,
- * or null for a widget outside any form or in a form a person fills in.
+ * Return the opening tag of the first g-recaptcha element when it is a visible
+ * `<div>` widget inside a form whose only fields are hidden inputs, buttons and
+ * the response textarea, with nothing contenteditable. Anything else (a widget
+ * outside a form, a button-bound or invisible widget, a form a person fills in)
+ * returns null.
  */
 export function challengeFormWidget(html: string): string | null {
 	const markup = withoutScriptsAndStyles(html);
 	const widget = RECAPTCHA_TAG.exec(markup);
-	if (!widget) return null;
+	if (!widget || !isVisibleDivWidget(widget[0])) return null;
 	for (const form of markup.matchAll(FORM)) {
 		const start = form.index;
 		if (widget.index < start || widget.index >= start + form[0].length)
 			continue;
+		if (hasEditable(form[0])) return null;
 		const fields = form[0].matchAll(FIELD);
 		for (const [tag, kind = ""] of fields)
 			if (!isChallengeField(tag, kind.toLowerCase())) return null;
@@ -103,7 +122,10 @@ function isGoogleSorry(url: URL): boolean {
 	return profileForUrl(url) === "google" && url.pathname.startsWith("/sorry");
 }
 
-/** True when a page still shows a challenge the classifier blocks: Google's /sorry or a CAPTCHA widget. */
+/**
+ * True when a page still shows a challenge the classifier blocks: Google's
+ * /sorry URL, a reCAPTCHA challenge form, or an hCaptcha or Amazon CAPTCHA marker.
+ */
 export function hasChallenge(html: string, finalUrl: string): boolean {
 	const url = URL.parse(finalUrl);
 	const markup = withoutScriptsAndStyles(html);

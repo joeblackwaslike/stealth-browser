@@ -136,13 +136,17 @@ unless `SOLVER_API_KEY` is set. With a key set, it runs on every host, up to
 `SOLVER_MAX_PER_HOUR` attempts per hour (default 100), failed attempts included. The budget
 lives in memory, so a pod restart resets it. The gateway assumes a single replica.
 
-The solver only acts on a challenge form: a `g-recaptcha` widget inside a form whose fields
-are all hidden inputs, buttons, and the response textarea. A widget outside a form, or in a
-form a person fills in (a login or comment form with text inputs), gets no solve and no
-submit, and is not classified as a block.
+The solver only acts on a challenge form: a visible `<div class="g-recaptcha">` widget
+inside a form whose fields are all hidden inputs, buttons, and the response textarea, with
+nothing `contenteditable`. Anything else gets no solve and no submit, and is not classified
+as a block: a widget outside a form, an invisible widget (`data-size="invisible"`), a widget
+bound to a button (a one-click unsubscribe or vote), or a form a person fills in (a login
+form with text inputs, a comment form with a rich-text editor).
 
-When a fetched page has such a form with a sitekey, the gateway asks the solver for a
-token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It solves
+When a fetched page has such a form with a sitekey, the gateway checks the form again in the
+live page, before asking the solver and again before filling it, and gives up with `no_form`
+if the form does not pass. Otherwise it asks the solver for a token, fills
+`g-recaptcha-response`, submits the form, and waits for navigation. It solves
 at most once per fetch. If the solver or the form fails (solver timeout, provider error,
 budget used up, no form on the page), the gateway returns the original page and classifies
 it as usual. A challenge page is `blocked` unless it came back with HTTP 429, so the client
