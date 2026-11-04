@@ -136,8 +136,8 @@ a 423 with no `Retry-After`. A non-Google challenge page served with HTTP 429 st
 `rate_limited`, so the client gets a 429 and the profile does not pause. If the solver returns
 a token and the site rejects it, the gateway returns the page after the submit and
 classifies it like any other page. The `solve_failed` warning in the gateway log carries
-the failure `reason` and the error's class and message as `err`, with the solver key and
-Camoufox endpoint redacted.
+the failure `reason`. When an error exists, `err` holds its class and message, with the
+solver key and Camoufox endpoint redacted.
 
 With a solver, a request can take about 240 s plus any queue wait. The deadline adds up to
 30 s connect, 30 s navigation, 0-15 s `waitForTimeout`, 15 s margin, 120 s solver and 30 s
