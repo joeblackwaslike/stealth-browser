@@ -71,7 +71,7 @@ Task 2 also updates the Scheduler call sites in `src/app.ts`, `src/server.ts` an
 
 **Interfaces:**
 - Produces: `Profile` gains `pauseOnBlock: boolean` (`ebay` and `reddit` true, `google` and `anon` false).
-- Produces: `export function scheduleKey(url: URL): string` returns the matched profile name, or for `anon` the lowercased hostname with any trailing dot removed.
+- Produces: `export function scheduleKey(url: URL): string` returns `profile:<name>` for a matched profile, or `host:<hostname>` (lowercased, trailing dot removed) for `anon`.
 - Produces: `class Scheduler { constructor(clock: SchedulerClock, opts?: { maxQueue?: number; blockPauseMs?: number }); run<T>(key: string, minGapMs: readonly [number, number], task: () => Promise<T>): Promise<T>; pause(key: string): void; pausedUntil(key: string): number | undefined }`.
 - Produces: `ProfilePausedError(key: string, until: number)` with fields `key` and `until`.
 
