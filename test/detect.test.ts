@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { classifyPage, detectChallenge } from "../src/detect.js";
+import { classifyPage, detectChallenge, hasChallenge } from "../src/detect.js";
 
 const fixture = (name: string) =>
 	readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -321,6 +321,19 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({ kind: "ok" });
 	});
 
+	it.each([
+		'<div data-class="g-recaptcha"></div>',
+		'<input data-id="captchacharacters">',
+	])("does not block an attribute-name lookalike: %s", (widget) => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: `<html><body>${widget}</body></html>`,
+			finalUrl: "https://example.com/",
+			cookieNames: [],
+		});
+		expect(verdict).toEqual({ kind: "ok" });
+	});
+
 	it("never reports session_expired for anon", () => {
 		const verdict = classifyPage({
 			profile: "anon",
@@ -413,6 +426,55 @@ describe("detectChallenge", () => {
 				sorryUrl,
 			),
 		).toBeNull();
+	});
+});
+
+describe("hasChallenge", () => {
+	it("is true for a google /sorry URL with no widget markup", () => {
+		expect(
+			hasChallenge(
+				"<html><body>sorry</body></html>",
+				"https://www.google.com/sorry/index?continue=x",
+			),
+		).toBe(true);
+	});
+
+	it("is false for a lookalike host's /sorry path", () => {
+		expect(
+			hasChallenge(
+				"<html><body>sorry</body></html>",
+				"https://notgoogle.com/sorry/index",
+			),
+		).toBe(false);
+	});
+
+	it("is true for a real g-recaptcha div on an ordinary URL", () => {
+		expect(
+			hasChallenge('<div class="g-recaptcha"></div>', "https://example.com/"),
+		).toBe(true);
+	});
+
+	it("is false for a hidden g-recaptcha-response textarea only", () => {
+		expect(
+			hasChallenge(
+				'<textarea class="g-recaptcha-response"></textarea>',
+				"https://example.com/",
+			),
+		).toBe(false);
+	});
+
+	it("is false for widget markup inside a script only", () => {
+		expect(
+			hasChallenge(
+				"<script>var t = '<div class=\"g-recaptcha\"></div>'</script>",
+				"https://example.com/",
+			),
+		).toBe(false);
+	});
+
+	it("returns false for an unparsable finalUrl without throwing", () => {
+		expect(hasChallenge("<html><body>ok</body></html>", "")).toBe(false);
+		expect(hasChallenge('<div class="g-recaptcha"></div>', "")).toBe(true);
 	});
 });
 
