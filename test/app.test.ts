@@ -130,7 +130,11 @@ describe("app", () => {
 
 	it("returns 423 and pauses the profile when the page is a challenge", async () => {
 		const app = build(async (r) =>
-			okResult(r.url, stateWith(), '<div class="g-recaptcha"></div>'),
+			okResult(
+				r.url,
+				stateWith(),
+				'<form><div class="g-recaptcha"></div></form>',
+			),
 		);
 		const first = await post(app, { url: "https://example.com/" });
 		expect(first.status).toBe(423);
@@ -202,7 +206,11 @@ describe("app", () => {
 		const app = build(async (r) => {
 			if (calls === 1) {
 				await gate.promise;
-				return okResult(r.url, stateWith(), '<div class="g-recaptcha"></div>');
+				return okResult(
+					r.url,
+					stateWith(),
+					'<form><div class="g-recaptcha"></div></form>',
+				);
 			}
 			return okResult(r.url);
 		});

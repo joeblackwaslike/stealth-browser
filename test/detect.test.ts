@@ -5,6 +5,19 @@ import { classifyPage, detectChallenge, hasChallenge } from "../src/detect.js";
 const fixture = (name: string) =>
 	readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 
+const WIDGET = '<div class="g-recaptcha" data-sitekey="K"></div>';
+const challengeForm = (widget = WIDGET) =>
+	`<form action="/verify" method="post"><input type="hidden" name="continue" value="x">${widget}<textarea name="g-recaptcha-response" class="g-recaptcha-response"></textarea><input type="submit" value="Continue"></form>`;
+const contentForm = (field: string) =>
+	`<form action="/signup" method="post">${field}${WIDGET}<button type="submit">Go</button></form>`;
+const classifyAnon = (body: string) =>
+	classifyPage({
+		profile: "anon",
+		html: `<html><head><title>x</title></head><body>${body}</body></html>`,
+		finalUrl: "https://example.com/",
+		cookieNames: [],
+	});
+
 describe("classifyPage", () => {
 	it("blocks an eBay challenge redirect", async () => {
 		const verdict = classifyPage({
@@ -16,6 +29,7 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({
 			kind: "blocked",
 			reason: "ebay_challenge_redirect",
+			marker: "ebay_challenge_redirect",
 		});
 	});
 
@@ -26,21 +40,54 @@ describe("classifyPage", () => {
 			finalUrl: "https://www.ebay.com/sch/i.html",
 			cookieNames: [],
 		});
-		expect(verdict).toEqual({ kind: "blocked", reason: "interruption_page" });
+		expect(verdict).toEqual({
+			kind: "blocked",
+			reason: "interruption_page",
+			marker: "interruption_page",
+		});
 	});
 
 	it.each([
-		'<div class="g-recaptcha"></div>',
-		'<div class="h-captcha"></div>',
-		'<input id="captchacharacters">',
-	])("blocks a captcha widget: %s", (widget) => {
+		['<div class="h-captcha"></div>', "captcha_widget:h-captcha"],
+		['<input id="captchacharacters">', "captcha_widget:amazon"],
+	])("blocks a captcha widget unconditionally: %s", (widget, marker) => {
 		const verdict = classifyPage({
 			profile: "anon",
 			html: `<html><head><title>x</title></head><body>${widget}</body></html>`,
 			finalUrl: "https://www.amazon.com/s?k=x",
 			cookieNames: [],
 		});
-		expect(verdict).toEqual({ kind: "blocked", reason: "captcha" });
+		expect(verdict).toEqual({ kind: "blocked", reason: "captcha", marker });
+	});
+
+	it("blocks a reCAPTCHA challenge form", () => {
+		expect(classifyAnon(challengeForm())).toEqual({
+			kind: "blocked",
+			reason: "captcha",
+			marker: "captcha_widget:g-recaptcha",
+		});
+	});
+
+	it.each([
+		['<input type="text" name="q">'],
+		['<input name="q">'],
+		['<input type="email" name="email">'],
+		['<input type="password" name="pw">'],
+		['<textarea name="comment"></textarea>'],
+		['<select name="s"><option>a</option></select>'],
+		['<input type="checkbox" name="agree">'],
+		['<input type="radio" name="r">'],
+	])("returns ok for a widget in a content form with %s", (field) => {
+		expect(classifyAnon(contentForm(field))).toEqual({ kind: "ok" });
+	});
+
+	it("returns ok for a widget outside any form", () => {
+		expect(classifyAnon(WIDGET)).toEqual({ kind: "ok" });
+	});
+
+	it("judges only the first widget", () => {
+		const html = `${contentForm('<input type="text" name="q">')}${challengeForm()}`;
+		expect(classifyAnon(html)).toEqual({ kind: "ok" });
 	});
 
 	it("blocks on 'verify you are human' in visible text", () => {
@@ -50,7 +97,11 @@ describe("classifyPage", () => {
 			finalUrl: "https://example.com/",
 			cookieNames: [],
 		});
-		expect(verdict).toEqual({ kind: "blocked", reason: "verify_human" });
+		expect(verdict).toEqual({
+			kind: "blocked",
+			reason: "verify_human",
+			marker: "verify_human",
+		});
 	});
 
 	it("ignores 'verify you are human' inside a script", () => {
@@ -174,6 +225,7 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({
 			kind: "blocked",
 			reason: "ebay_error_page",
+			marker: "ebay_error_page",
 		});
 	});
 
@@ -187,6 +239,7 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({
 			kind: "blocked",
 			reason: "ebay_error_page",
+			marker: "ebay_error_page",
 		});
 	});
 
@@ -220,7 +273,11 @@ describe("classifyPage", () => {
 			cookieNames: [],
 			status: 429,
 		});
-		expect(verdict).toEqual({ kind: "blocked", reason: "google_sorry" });
+		expect(verdict).toEqual({
+			kind: "blocked",
+			reason: "google_sorry",
+			marker: "google_sorry",
+		});
 	});
 
 	it("still treats a google 429 outside /sorry as rate_limited", () => {
@@ -246,10 +303,18 @@ describe("classifyPage", () => {
 	});
 
 	it.each([
-		['<div class="g-recaptcha extra"></div>', "captcha"],
-		["<div class='h-captcha'></div>", "captcha"],
-		["<p>Please verify you\n   <b>are</b> human</p>", "verify_human"],
-	])("blocks a challenge written as %s", (html, reason) => {
+		[
+			challengeForm('<div class="g-recaptcha extra"></div>'),
+			"captcha",
+			"captcha_widget:g-recaptcha",
+		],
+		["<div class='h-captcha'></div>", "captcha", "captcha_widget:h-captcha"],
+		[
+			"<p>Please verify you\n   <b>are</b> human</p>",
+			"verify_human",
+			"verify_human",
+		],
+	])("blocks a challenge written as %s", (html, reason, marker) => {
 		const verdict = classifyPage({
 			profile: "anon",
 			html: `<html><body>${html}</body></html>`,
@@ -257,7 +322,7 @@ describe("classifyPage", () => {
 			cookieNames: [],
 			status: 200,
 		});
-		expect(verdict).toEqual({ kind: "blocked", reason });
+		expect(verdict).toEqual({ kind: "blocked", reason, marker });
 	});
 
 	it("blocks an eBay error page whose title has leading whitespace", () => {
@@ -268,7 +333,11 @@ describe("classifyPage", () => {
 			cookieNames: ["s"],
 			status: 200,
 		});
-		expect(verdict).toEqual({ kind: "blocked", reason: "ebay_error_page" });
+		expect(verdict).toEqual({
+			kind: "blocked",
+			reason: "ebay_error_page",
+			marker: "ebay_error_page",
+		});
 	});
 
 	it("ignores an 'Error Page' title outside eBay", () => {
@@ -293,6 +362,7 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({
 			kind: "blocked",
 			reason: "ebay_error_page",
+			marker: "ebay_error_page",
 		});
 	});
 
@@ -307,6 +377,7 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({
 			kind: "blocked",
 			reason: "http_block_status",
+			marker: "http_block_status",
 		});
 	});
 
@@ -371,7 +442,10 @@ describe("detectChallenge", () => {
 
 	it("returns null for a widget without data-sitekey", () => {
 		expect(
-			detectChallenge('<div class="g-recaptcha"></div>', sorryUrl),
+			detectChallenge(
+				challengeForm('<div class="g-recaptcha"></div>'),
+				sorryUrl,
+			),
 		).toBeNull();
 	});
 
@@ -399,7 +473,9 @@ describe("detectChallenge", () => {
 	it("reads both values when data-s comes before data-sitekey", () => {
 		expect(
 			detectChallenge(
-				'<div class="g-recaptcha" data-s="S1" data-sitekey="K1"></div>',
+				challengeForm(
+					'<div class="g-recaptcha" data-s="S1" data-sitekey="K1"></div>',
+				),
 				sorryUrl,
 			),
 		).toEqual({
@@ -413,10 +489,16 @@ describe("detectChallenge", () => {
 	it("accepts single-quoted attributes", () => {
 		expect(
 			detectChallenge(
-				"<div class='g-recaptcha' data-sitekey='K2'></div>",
+				challengeForm("<div class='g-recaptcha' data-sitekey='K2'></div>"),
 				sorryUrl,
 			),
 		).toEqual({ type: "recaptcha_v2", sitekey: "K2", pageUrl: sorryUrl });
+	});
+
+	it("returns null for a widget in a content form", () => {
+		expect(
+			detectChallenge(contentForm('<input type="text" name="q">'), sorryUrl),
+		).toBeNull();
 	});
 
 	it("ignores a widget inside a script template", () => {
@@ -448,9 +530,25 @@ describe("hasChallenge", () => {
 		).toBe(false);
 	});
 
-	it("is true for a real g-recaptcha div on an ordinary URL", () => {
+	it("is true for a reCAPTCHA challenge form on an ordinary URL", () => {
+		expect(hasChallenge(challengeForm(), "https://example.com/")).toBe(true);
+	});
+
+	it("is false for a widget in a content form", () => {
 		expect(
-			hasChallenge('<div class="g-recaptcha"></div>', "https://example.com/"),
+			hasChallenge(
+				contentForm('<input type="text" name="q">'),
+				"https://example.com/",
+			),
+		).toBe(false);
+	});
+
+	it("is true for an hCaptcha widget or captchacharacters marker", () => {
+		expect(
+			hasChallenge('<div class="h-captcha"></div>', "https://example.com/"),
+		).toBe(true);
+		expect(
+			hasChallenge('<input id="captchacharacters">', "https://example.com/"),
 		).toBe(true);
 	});
 
@@ -474,20 +572,23 @@ describe("hasChallenge", () => {
 
 	it("returns false for an unparsable finalUrl without throwing", () => {
 		expect(hasChallenge("<html><body>ok</body></html>", "")).toBe(false);
-		expect(hasChallenge('<div class="g-recaptcha"></div>', "")).toBe(true);
+		expect(hasChallenge(challengeForm(), "")).toBe(true);
 	});
 });
 
 describe("detectChallenge attribute boundaries", () => {
 	it("ignores an attribute whose name only ends in data-sitekey", () => {
-		const html =
-			'<div class="g-recaptcha" not-data-sitekey="WRONG" data-sitekey="RIGHT"></div>';
+		const html = challengeForm(
+			'<div class="g-recaptcha" not-data-sitekey="WRONG" data-sitekey="RIGHT"></div>',
+		);
 		expect(detectChallenge(html, "https://example.com/")?.sitekey).toBe(
 			"RIGHT",
 		);
 		expect(
 			detectChallenge(
-				'<div class="g-recaptcha" not-data-sitekey="WRONG"></div>',
+				challengeForm(
+					'<div class="g-recaptcha" not-data-sitekey="WRONG"></div>',
+				),
 				"https://example.com/",
 			),
 		).toBeNull();

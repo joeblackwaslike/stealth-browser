@@ -382,7 +382,7 @@ describe("createCamoufoxFetcher post-submit challenge check", () => {
 	it("reports challenge_remained for a widget without a sitekey, which the classifier still blocks", async () => {
 		await fakePlaywright({
 			afterSubmit: {
-				html: '<html><body><div class="g-recaptcha"></div></body></html>',
+				html: '<html><body><form><div class="g-recaptcha"></div></form></body></html>',
 				url: "https://shop.example.com/verify",
 			},
 		});

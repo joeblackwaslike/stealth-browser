@@ -104,13 +104,13 @@ describe("submitToken against a DOM", () => {
 		expect(document.querySelectorAll("#g-recaptcha-response")).toHaveLength(1);
 	});
 
-	it("reports no_form and submits nothing when no form encloses the widget", async () => {
+	it("does not attempt a solve or submit for a widget outside any form", async () => {
 		const { submitted } = domPage(
 			'<div class="g-recaptcha" data-sitekey="SITEKEY123"></div>',
 		);
 		const result = await fetchWithToken();
 		expect(submitted).toEqual([]);
-		expect(result).toMatchObject({ solve: "failed", solveReason: "no_form" });
+		expect(result.solve).toBeUndefined();
 	});
 
 	it("reports navigation_failed when the submit's navigation never arrives", async () => {
