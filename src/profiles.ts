@@ -74,10 +74,13 @@ export function profileForUrl(url: URL): ProfileName {
 }
 
 /**
- * Key pacing and pauses are tracked under: the matched profile name, or for
- * `anon` the lowercased hostname without its DNS root dot.
+ * Key pacing and pauses are tracked under: `profile:<name>` for a matched
+ * profile, or `host:<hostname>` (lowercased, without its DNS root dot) for
+ * `anon`, so a bare host like `ebay` never shares a profile's schedule.
  */
 export function scheduleKey(url: URL): string {
 	const name = profileForUrl(url);
-	return name === "anon" ? url.hostname.toLowerCase().replace(/\.$/, "") : name;
+	return name === "anon"
+		? `host:${url.hostname.toLowerCase().replace(/\.$/, "")}`
+		: `profile:${name}`;
 }

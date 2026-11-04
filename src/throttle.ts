@@ -26,6 +26,10 @@ export class ProfilePausedError extends Error {
 	}
 }
 
+const MAX_TRACKED_KEYS = 256;
+/** Longer than the largest pacing gap, so a forgotten key has no gap left to wait. */
+const IDLE_AFTER_MS = 60_000;
+
 /**
  * Single-slot FIFO scheduler for the one shared browser. Enforces a jittered
  * per-key gap between task starts, caps the waiting queue, and pauses a
@@ -81,6 +85,7 @@ export class Scheduler {
 				await this.waitForGap(key, minGapMs);
 				this.throwIfPaused(key);
 				this.lastStart.set(key, this.clock.now());
+				this.pruneIdle();
 				return await task();
 			} finally {
 				this.inFlight--;
@@ -91,6 +96,14 @@ export class Scheduler {
 			() => undefined,
 		);
 		return result;
+	}
+
+	private pruneIdle(): void {
+		if (this.lastStart.size <= MAX_TRACKED_KEYS) return;
+		const now = this.clock.now();
+		for (const [key, last] of this.lastStart)
+			if (now - last > IDLE_AFTER_MS && this.pausedUntil(key) === undefined)
+				this.lastStart.delete(key);
 	}
 
 	private throwIfPaused(key: string): void {

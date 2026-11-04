@@ -30,6 +30,10 @@
 - A spent solver budget or a missing sitekey on eBay is an unsolved block and pauses eBay (Task 3).
 - With no `SOLVER_API_KEY`, a challenge form returns 423 with `html` and `marker`, and a failing capture write still returns the 423 without `capture` (Task 3).
 
+## Execution rulings
+
+Task 2 also updates the Scheduler call sites in `src/app.ts`, `src/server.ts` and the tests, and Task 3 also removes the `solverProfiles` argument at the `createApp` call in `src/server.ts` (Task 4 removes the config field), so every commit passes the gate.
+
 ---
 
 ### Task 1: Challenge-form guard and markers in detect.ts

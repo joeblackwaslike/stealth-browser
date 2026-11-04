@@ -65,8 +65,9 @@ function redactor(wsEndpoint: string): (error: unknown) => Error {
 
 /**
  * Runs in the page, so it must stay self-contained. Checks the live form around
- * the first `.g-recaptcha`: the widget is a visible div, every form control is a
- * button, a hidden/submit/button/image/reset input or the response textarea, and
+ * the first `.g-recaptcha`: the widget is a `div` that is not
+ * `data-size="invisible"`, every form control is a
+ * button, a fieldset, a hidden/submit/button/image/reset input or the response textarea, and
  * nothing in the form is editable. Given a token, writes it into the response
  * field. Returns whether the form passed.
  */
@@ -82,6 +83,7 @@ function fillChallengeForm(token: string | null): boolean {
 	for (const control of Array.from(form.elements)) {
 		const allowed =
 			control.tagName === "BUTTON" ||
+			control.tagName === "FIELDSET" ||
 			(control.tagName === "INPUT" &&
 				allowedInputs.includes((control as HTMLInputElement).type)) ||
 			(control.tagName === "TEXTAREA" &&

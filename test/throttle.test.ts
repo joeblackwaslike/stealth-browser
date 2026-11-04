@@ -164,4 +164,30 @@ describe("Scheduler", () => {
 		).rejects.toThrow("boom");
 		await expect(s.run("anon", GAP, async () => "next")).resolves.toBe("next");
 	});
+
+	it("keeps pacing recent hosts after pruning idle ones", async () => {
+		const clock = fakeClock(0.5);
+		const s = new Scheduler(clock);
+		const task = async () => undefined;
+		await s.run("idle.example", GAP, task);
+		await clock.sleep(61_000);
+		await s.run("recent.example", GAP, task);
+		for (let i = 0; i < 257; i++) await s.run(`h${i}.example`, GAP, task);
+		const before = clock.now();
+		await s.run("idle.example", GAP, task);
+		expect(clock.now()).toBe(before);
+		await s.run("recent.example", GAP, task);
+		expect(clock.now()).toBe(before + 5500);
+	});
+
+	it("keeps a paused host paused after pruning", async () => {
+		const clock = fakeClock(0.5);
+		const s = new Scheduler(clock);
+		const task = async () => undefined;
+		await s.run("paused.example", GAP, task);
+		s.pause("paused.example");
+		await clock.sleep(61_000);
+		for (let i = 0; i < 257; i++) await s.run(`h${i}.example`, GAP, task);
+		expect(s.pausedUntil("paused.example")).toBeDefined();
+	});
 });

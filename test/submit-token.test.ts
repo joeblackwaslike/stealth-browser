@@ -122,6 +122,15 @@ describe("submitToken against a DOM", () => {
 		).toHaveLength(1);
 	});
 
+	it("accepts a challenge form that wraps its widget in a fieldset", async () => {
+		const { submitted } = domPage(
+			`<form id="captcha-form" action="/x"><fieldset><input type="hidden" name="t">${WIDGET}</fieldset><button>Go</button></form>`,
+		);
+		const result = await fetchWithToken();
+		expect(submitted).toEqual([{ formId: "captcha-form", token: "TOKEN" }]);
+		expect(result).toMatchObject({ solve: "solved" });
+	});
+
 	it("does not attempt a solve or submit for a widget outside any form", async () => {
 		const { submitted } = domPage(
 			'<div class="g-recaptcha" data-sitekey="SITEKEY123"></div>',
@@ -138,7 +147,7 @@ describe("submitToken against a DOM", () => {
 		],
 		[
 			"a template whose widget the live DOM does not contain",
-			`<template><form>${WIDGET}<input type="hidden" name="x"></form></template><form id="real"><input type="email" name="e">${WIDGET}</form>`,
+			`<template><form>${WIDGET}<input type="hidden" name="x"></form></template><form id="real"><input type="hidden" name="e"></form>`,
 		],
 	])("neither solves nor submits for %s", async (_name, body) => {
 		const { submitted } = domPage(body);

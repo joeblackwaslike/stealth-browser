@@ -76,8 +76,9 @@ every subdomain of it:
 | `google.com`, `*.google.com` | 8-15 s | no | no |
 | any other host | 3-8 s | no | no |
 
-Gaps are random within the range. Each other host is paced on its own, so a slow
-`example.com` does not delay `example.org`.
+Gaps are random within the range. Pacing gaps are tracked per host, but requests still
+run one at a time in first-in first-out order through the single browser slot, so a
+request waiting out its gap can still delay one queued behind it.
 
 Matching follows label boundaries, so `notebay.com` and `ebay.com.example` go to `anon`.
 After a successful fetch on a login profile, the gateway saves the updated cookies back

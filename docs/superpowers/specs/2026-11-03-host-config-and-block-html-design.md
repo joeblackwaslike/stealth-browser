@@ -60,7 +60,7 @@ many places: pacing per profile, solver gating per profile, pause per profile.
 ### Host table
 
 A single module (replacing the settings part of `src/profiles.ts`) exports a table of
-entries. An entry has a registrable domain, `minGapMs`, `pauseOnFailedSolve`, and
+entries. An entry has a registrable domain, `minGapMs`, `pauseOnBlock`, and
 whether it keeps a saved login.
 
 | Host | Gap | Pause after an unsolved block | Saved login |
@@ -116,7 +116,9 @@ block. `429` stays `rate_limited` and never pauses.
 ### Pause
 
 After a block (either kind above), the matched entry is paused for 30 minutes only if
-its `pauseOnFailedSolve` is set: eBay and Reddit. The reason is that a challenge
+its `pauseOnBlock` is set: eBay and Reddit. The flag applies to any block, so an
+interruption page or an HTTP 403 pauses eBay and Reddit too, not only a failed solve.
+The reason is that a challenge
 retried from the home IP can flag a logged-in account. Every other host answers the
 next request normally. A request that arrives during a pause still gets
 `423 { reason: "paused" }` with `Retry-After`.
@@ -196,6 +198,7 @@ testable against fixture HTML.
 
 - Google `/sorry` no longer pauses. An unsolved one is retried on the next request
   from the home IP, bounded only by the 100-per-hour solver budget. If Google starts
-  flagging the IP, set `pauseOnFailedSolve` on the google entry; it is one table row.
+  flagging the IP, set `pauseOnBlock` on the google entry; it is one table row. The flag applies to any
+  block (an interruption page or HTTP 403), not only a failed solve.
 - Solving on every host spends money wherever a challenge form appears. The budget
   caps the spend; the dashboard will show it.

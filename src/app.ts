@@ -73,6 +73,10 @@ export function createApp(deps: AppDeps): Hono {
 		let solveReason: FetchResult["solveReason"];
 		let marker: string | undefined;
 		const done = (res: Response): Response => {
+			const reachedSolver =
+				solve !== undefined &&
+				solveReason !== "budget_exceeded" &&
+				solveReason !== "no_form";
 			logger.info({
 				profile,
 				entry: profile,
@@ -81,8 +85,8 @@ export function createApp(deps: AppDeps): Hono {
 				marker,
 				solve,
 				solveReason,
-				challengeType: solve ? "recaptcha_v2" : undefined,
-				attempts: solve ? 1 : undefined,
+				challengeType: reachedSolver ? "recaptcha_v2" : undefined,
+				attempts: reachedSolver ? 1 : undefined,
 				status: res.status,
 				ms: now() - started,
 			});

@@ -620,6 +620,40 @@ describe("app", () => {
 			},
 		],
 		[
+			"a spent budget",
+			{
+				html: CHALLENGE,
+				solve: "failed" as const,
+				solveReason: "budget_exceeded" as const,
+			},
+			{
+				verdict: "blocked",
+				status: 423,
+				marker: "captcha_widget:g-recaptcha",
+				solve: "failed",
+				solveReason: "budget_exceeded",
+				challengeType: undefined,
+				attempts: undefined,
+			},
+		],
+		[
+			"a page with no form",
+			{
+				html: CHALLENGE,
+				solve: "failed" as const,
+				solveReason: "no_form" as const,
+			},
+			{
+				verdict: "blocked",
+				status: 423,
+				marker: "captcha_widget:g-recaptcha",
+				solve: "failed",
+				solveReason: "no_form",
+				challengeType: undefined,
+				attempts: undefined,
+			},
+		],
+		[
 			"a plain 200",
 			{},
 			{
