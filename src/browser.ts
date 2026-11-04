@@ -90,7 +90,7 @@ function fillChallengeForm(token: string | null): boolean {
 	}
 	if (token === null) return true;
 	let field = form.querySelector<HTMLTextAreaElement>(
-		"textarea#g-recaptcha-response",
+		'textarea[name="g-recaptcha-response"]',
 	);
 	if (!field) {
 		field = document.createElement("textarea");

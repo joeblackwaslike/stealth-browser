@@ -109,6 +109,19 @@ describe("submitToken against a DOM", () => {
 		expect(document.querySelectorAll("#g-recaptcha-response")).toHaveLength(1);
 	});
 
+	it("reuses an existing response textarea with a suffixed id instead of adding a second one", async () => {
+		const body = (await sorryBody()).replace(
+			/<textarea id="g-recaptcha-response"([^>]*)><\/textarea>/,
+			'<textarea id="g-recaptcha-response-100000"$1></textarea>',
+		);
+		const { submitted } = domPage(body);
+		await fetchWithToken();
+		expect(submitted).toEqual([{ formId: "captcha-form", token: "TOKEN" }]);
+		expect(
+			document.querySelectorAll('[name="g-recaptcha-response"]'),
+		).toHaveLength(1);
+	});
+
 	it("does not attempt a solve or submit for a widget outside any form", async () => {
 		const { submitted } = domPage(
 			'<div class="g-recaptcha" data-sitekey="SITEKEY123"></div>',
