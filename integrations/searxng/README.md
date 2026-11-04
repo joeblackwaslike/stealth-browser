@@ -18,7 +18,7 @@ The gateway picks its `google` profile from the hostname, so the gateway needs n
 ## Environment variables
 
 | Variable | Meaning | Default |
-|---|---|---|
+| --- | --- | --- |
 | `STEALTH_BROWSER_URL` | Gateway base URL, no trailing slash | none, `request()` raises `KeyError` if unset |
 | `STEALTH_BROWSER_TOKEN` | Bearer token for the gateway | none, same |
 
@@ -55,4 +55,4 @@ When this file changes here, the copy in `openclaw-setup` has to be updated by h
 ## Known issues
 
 1. After a solved CAPTCHA the gateway can return Google's redirect interstitial instead of results. The engine raises `SearxEngineAPIException` on that page. The gateway-side fix is tracked as `stealth-browser-1uo`.
-2. The cluster deployment of this engine is not currently live. Another session's deploy of the SearXNG manifests overwrote it, and the engine's env vars, mount and settings entry were lost.
+2. The cluster deployment of this engine was not live when the session that built it ended on 2026-11-03. Another session's deploy of the SearXNG manifests overwrote it, and the engine's env vars, mount and settings entry were lost. This is taken from that session's final summary and has not been rechecked against the cluster.
