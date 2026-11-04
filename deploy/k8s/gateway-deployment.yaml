@@ -44,7 +44,7 @@ spec:
             - name: SOLVER_BASE_URL
               value: https://2captcha.com
             - name: SOLVER_MAX_PER_HOUR
-              value: "20"
+              value: "100"
             - name: CAMOUFOX_WS_URL
               value: ws://camoufox.stealth-browser.svc.cluster.local:3000/$(WS_PATH)
           volumeMounts:
