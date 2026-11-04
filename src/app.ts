@@ -38,8 +38,6 @@ export type AppDeps = {
 	logger: Logger;
 	now?: () => number;
 	solver?: Solver;
-	/** Profiles whose fetches get the solver. */
-	solverProfiles?: readonly ProfileName[];
 };
 
 /** The saved-login file couldn't be read (corrupt JSON, EACCES, EIO). */
@@ -56,7 +54,6 @@ function parseUrl(raw: string): URL | undefined {
 /** Build the gateway app. Every route sits behind the bearer token. */
 export function createApp(deps: AppDeps): Hono {
 	const { fetcher, scheduler, store, logger, solver } = deps;
-	const solverProfiles = new Set(deps.solverProfiles);
 	const now = deps.now ?? Date.now;
 	const readState = (name: LoginProfileName) =>
 		store.read(name).catch((error: unknown) => {
@@ -73,12 +70,17 @@ export function createApp(deps: AppDeps): Hono {
 		let host = "";
 		let verdict = "none";
 		let solve: FetchResult["solve"];
+		let marker: string | undefined;
 		const done = (res: Response): Response => {
 			logger.info({
 				profile,
+				entry: profile,
 				host,
 				verdict,
+				marker,
 				solve,
+				challengeType: solve ? "recaptcha_v2" : undefined,
+				attempts: solve ? 1 : undefined,
 				status: res.status,
 				ms: now() - started,
 			});
@@ -128,7 +130,7 @@ export function createApp(deps: AppDeps): Hono {
 						url,
 						waitForTimeout,
 						storageState,
-						solver: solverProfiles.has(resolved) ? solver : undefined,
+						solver,
 					});
 					const classified = classifyPage({
 						profile: resolved,
@@ -140,8 +142,9 @@ export function createApp(deps: AppDeps): Hono {
 						status: fetched.status,
 					});
 					// Pause inside the task, before it frees its slot, so no queued
-					// request for this profile can start after a block.
-					if (classified.kind === "blocked") scheduler.pause(key);
+					// request for this key can start after a block.
+					if (classified.kind === "blocked" && PROFILES[resolved].pauseOnBlock)
+						scheduler.pause(key);
 					return { result: fetched, page: classified };
 				},
 			);
@@ -160,10 +163,19 @@ export function createApp(deps: AppDeps): Hono {
 			}
 
 			if (page.kind === "blocked") {
-				await saveCapture(resolved, "blocked", result.html);
+				marker = page.marker;
+				const capture = await saveCapture(resolved, "blocked", result.html);
 				return done(
 					c.json(
-						{ blocked: true, profile: resolved, reason: page.reason },
+						{
+							blocked: true,
+							profile: resolved,
+							host,
+							reason: page.reason,
+							marker: page.marker,
+							html: result.html,
+							...(capture && { capture }),
+						},
 						423,
 					),
 				);
@@ -231,11 +243,12 @@ export function createApp(deps: AppDeps): Hono {
 		profile: ProfileName,
 		kind: "blocked" | "session_expired",
 		html: string,
-	): Promise<void> {
+	): Promise<string | undefined> {
 		try {
-			await store.saveCapture(profile, kind, html);
+			return await store.saveCapture(profile, kind, html);
 		} catch (error) {
 			logger.warn({ profile, kind, err: String(error) }, "capture_save_failed");
+			return undefined;
 		}
 	}
 
