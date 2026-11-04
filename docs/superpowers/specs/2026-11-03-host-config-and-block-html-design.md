@@ -170,8 +170,11 @@ Fixture-based, written first:
 
 ## Left to the builder
 
-Exact visibility rules for the guard, marker names beyond the examples, the layout of
-the host module, and how the scheduler keys its maps by entry or hostname.
+Exact visibility rules for the guard, the layout of the host module, and how the
+scheduler keys its maps by entry or hostname. The guard needs the form's structure, so
+it either runs in the page (the fetch result then carries a `challengeForm` flag the
+classifier reads) or on the serialized HTML; pick whichever keeps `classifyPage`
+testable against fixture HTML.
 
 ## Calls made for review
 
