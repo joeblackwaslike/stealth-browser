@@ -70,6 +70,7 @@ export function createApp(deps: AppDeps): Hono {
 		let host = "";
 		let verdict = "none";
 		let solve: FetchResult["solve"];
+		let solveReason: FetchResult["solveReason"];
 		let marker: string | undefined;
 		const done = (res: Response): Response => {
 			logger.info({
@@ -79,6 +80,7 @@ export function createApp(deps: AppDeps): Hono {
 				verdict,
 				marker,
 				solve,
+				solveReason,
 				challengeType: solve ? "recaptcha_v2" : undefined,
 				attempts: solve ? 1 : undefined,
 				status: res.status,
@@ -150,6 +152,7 @@ export function createApp(deps: AppDeps): Hono {
 			);
 			verdict = page.kind;
 			solve = result.solve;
+			solveReason = result.solve === "failed" ? result.solveReason : undefined;
 			if (result.solve === "failed") {
 				logger.warn(
 					{
