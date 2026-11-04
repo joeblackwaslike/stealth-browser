@@ -72,7 +72,8 @@ async function fakePlaywright(
 				navigationStatus === null ? null : { status: () => navigationStatus },
 			);
 		},
-		evaluate: async (_fn: unknown, token?: string) => {
+		evaluate: async (_fn: unknown, token?: string | null) => {
+			if (token === null) return opts.formEnclosesWidget !== false;
 			if (token !== undefined) {
 				injected.push(token);
 				return opts.formEnclosesWidget !== false;
@@ -205,7 +206,7 @@ describe("createCamoufoxFetcher solving", () => {
 
 	it("returns the pre-solve page when no form encloses the widget", async () => {
 		const fake = await fakePlaywright({ formEnclosesWidget: false });
-		const { solver } = recordingSolver(async () => "TOKEN");
+		const { solver, seen } = recordingSolver(async () => "TOKEN");
 		const fetcher = createCamoufoxFetcher("ws://fake/");
 		const result = await fetcher.fetch({
 			url: SORRY_URL,
@@ -219,6 +220,7 @@ describe("createCamoufoxFetcher solving", () => {
 			solve: "failed",
 			solveReason: "no_form",
 		});
+		expect(seen).toEqual([]);
 		expect(fake.navigationWaits()).toBe(0);
 	});
 
@@ -382,7 +384,7 @@ describe("createCamoufoxFetcher post-submit challenge check", () => {
 	it("reports challenge_remained for a widget without a sitekey, which the classifier still blocks", async () => {
 		await fakePlaywright({
 			afterSubmit: {
-				html: '<html><body><div class="g-recaptcha"></div></body></html>',
+				html: '<html><body><form><div class="g-recaptcha"></div></form></body></html>',
 				url: "https://shop.example.com/verify",
 			},
 		});

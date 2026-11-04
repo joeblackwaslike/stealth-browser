@@ -69,12 +69,16 @@ A 200 returns the rendered HTML as `text/html`, with the post-redirect URL in th
 The gateway picks the profile from the URL's hostname. A profile owns its domain and
 every subdomain of it:
 
-| Hostname | Profile | Session |
-| --- | --- | --- |
-| `ebay.com`, `*.ebay.com` | `ebay` | saved login |
-| `reddit.com`, `*.reddit.com` | `reddit` | saved login |
-| `google.com`, `*.google.com` | `google` | none |
-| anything else | `anon` | none |
+| Host | Gap between requests | Pauses after an unsolved block | Saved login |
+| --- | --- | --- | --- |
+| `ebay.com`, `*.ebay.com` | 20-40 s | yes | yes |
+| `reddit.com`, `*.reddit.com` | 5-10 s | yes | yes |
+| `google.com`, `*.google.com` | 8-15 s | no | no |
+| any other host | 3-8 s | no | no |
+
+Gaps are random within the range. Pacing gaps are tracked per host, but requests still
+run one at a time in first-in first-out order through the single browser slot, so a
+request waiting out its gap can still delay one queued behind it.
 
 Matching follows label boundaries, so `notebay.com` and `ebay.com.example` go to `anon`.
 After a successful fetch on a login profile, the gateway saves the updated cookies back
@@ -87,57 +91,78 @@ to the store, unless a newer session was uploaded while the request ran.
 | 400 | `{"error":"invalid_request","message":...}` | Bad body or disallowed URL |
 | 401 | not JSON | Token missing or wrong |
 | 401 | `{"session_expired":true,"profile":...}` | No saved session, or the site redirected to its sign-in page |
-| 423 | `{"blocked":true,"profile":...,"reason":...}` | The site served a bot check; the profile is now paused for 30 minutes. No `Retry-After` header |
-| 423 | same, `"reason":"paused"`, plus `Retry-After` (seconds) | The profile is still paused from an earlier block |
+| 423 | `{"blocked":true,"profile":...,"host":...,"reason":...,"marker":...,"html":...,"capture":...}` | The site served a bot check. On eBay and Reddit the profile is also paused for 30 minutes. No `Retry-After` header |
+| 423 | `{"blocked":true,"profile":...,"reason":"paused"}` plus `Retry-After` (seconds) | The profile is still paused from an earlier block |
 | 429 | `{"error":"rate_limited","profile":...}` | The site answered 429; no pause |
 | 429 | `{"error":"queue_full"}` | The queue is full |
 | 500 | `{"error":"state_unavailable","profile":...}` | Reading the saved session failed |
 | 500 | `{"error":"state_write_failed","profile":...}` | `PUT /profiles/:name/state` failed to persist |
 | 502 | `{"error":"navigation_failed","message":...}` | Navigation failed or timed out |
 
-A fresh block's `reason` is one of `ebay_challenge_redirect`, `interruption_page`,
-`ebay_error_page`, `captcha`, `verify_human`, `google_sorry` (Google's `/sorry` page, even
-when served with 429), or `http_block_status` (the site answered 403). Session expiry means the eBay request landed on `signin.ebay.com`, or the Reddit
-request landed on `/login` or came back without a `reddit_session` cookie. On a fresh block or
-a detected expiry, the gateway saves the page HTML under `/state/captures`, keeping the newest 20.
+A fresh block's 423 body has these fields:
+
+- `blocked` is always `true`.
+- `profile` is the matched profile and `host` is the requested hostname.
+- `reason` is one of `ebay_challenge_redirect`, `interruption_page`, `ebay_error_page`,
+  `captcha`, `verify_human`, `google_sorry` (Google's `/sorry` page, even when served with
+  429), or `http_block_status` (the site answered 403).
+- `marker` is the exact check that matched: `ebay_challenge_redirect`, `interruption_page`,
+  `ebay_error_page`, `captcha_widget:g-recaptcha`, `captcha_widget:h-captcha`,
+  `captcha_widget:amazon`, `verify_human`, `google_sorry`, or `http_block_status`.
+- `html` is the page the site served.
+- `capture` is the file name of the copy saved under `/state/captures` (newest 20 kept).
+  It is left out when the save fails.
+
+The `paused` 423 comes from the gateway without fetching anything, so it has no `host`,
+`marker`, `html`, or `capture`. `html` can be large, so extract only the fields you need
+(for example `jq -r '.marker'`) instead of printing the whole body.
+
+Session expiry means the eBay request landed on `signin.ebay.com`, or the Reddit request
+landed on `/login` or came back without a `reddit_session` cookie. On a detected expiry the
+gateway saves the page HTML under `/state/captures` too.
 
 ### Pacing
 
 There is one browser, so requests run one at a time in FIFO order. Between two starts
-on the same profile the gateway waits a random gap: 20-40 s for `ebay`, 5-10 s for
-`reddit`, 8-15 s for `google`, 3-8 s for `anon`. One request runs and up to five wait; a seventh gets
-`queue_full`. A request can wait a minute or more, so give clients a long timeout.
+on the same key the gateway waits a random gap from the host table above. The key is the
+profile for eBay, Reddit and Google, and the hostname for everything else. One request runs
+and up to five wait; a seventh gets `queue_full`. A request can wait a minute or more,
+so give clients a long timeout.
 Navigation times out after 30 s.
 
 ### Solver
 
 The gateway can send reCAPTCHA v2 challenges to a 2Captcha-compatible service. It is off
-unless `SOLVER_API_KEY` is set.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `SOLVER_API_KEY` | unset | API key. Unset disables the solver. |
-| `SOLVER_BASE_URL` | `https://2captcha.com` | Base URL of the solver service. Must be `https://`. A path prefix such as `/api` is kept |
-| `SOLVER_MAX_PER_HOUR` | `20` | Positive integer. Solve attempts allowed per hour, failed ones included |
-| `SOLVER_PROFILES` | `google` | Comma-separated profile names that may use the solver. Unknown names fail at startup |
-
-The solver only runs for profiles in `SOLVER_PROFILES`. To turn solving on elsewhere, list
-the profile, for example `SOLVER_PROFILES=google,anon`. An `anon` page with an ordinary
-reCAPTCHA form gets no solve and no form submit unless `anon` is listed. The hourly budget
+unless `SOLVER_API_KEY` is set. With a key set, it runs on every host, up to
+`SOLVER_MAX_PER_HOUR` attempts per hour (default 100), failed attempts included. The budget
 lives in memory, so a pod restart resets it. The gateway assumes a single replica.
 
-When a fetched page has a reCAPTCHA v2 widget with a sitekey, the gateway asks the solver
-for a token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It
-solves at most once per fetch. If the solver or the form fails (solver timeout, provider
-error, budget used up, no form on the page), the gateway returns the original page and
-classifies it as usual. Google's `/sorry` page and a challenge page with any status other
-than 429 are classified `blocked`, so the profile pauses for 30 minutes and the client gets
-a 423 with no `Retry-After`. A non-Google challenge page served with HTTP 429 stays
-`rate_limited`, so the client gets a 429 and the profile does not pause. If the solver returns
-a token and the site rejects it, the gateway returns the page after the submit and
-classifies it like any other page. The `solve_failed` warning in the gateway log carries
-the failure `reason`. When an error exists, `err` holds its class and message, with the
-solver key and Camoufox endpoint redacted.
+The solver only acts on a challenge form: a visible `<div class="g-recaptcha">` widget
+inside a form whose fields are all hidden inputs, buttons, and the response textarea, with
+nothing `contenteditable`. Anything else gets no solve and no submit, and is not classified
+as a block: a widget outside a form, an invisible widget (`data-size="invisible"`), a widget
+bound to a button (a one-click unsubscribe or vote), or a form a person fills in (a login
+form with text inputs, a comment form with a rich-text editor).
+
+The guard is structural. A form made only of hidden fields, a visible reCAPTCHA widget and a
+submit button, such as an unsubscribe or confirm form, looks the same as a challenge form, so
+with `SOLVER_API_KEY` set it is solved and submitted. The hourly budget caps the spend, and
+narrowing the guard is tracked.
+
+When a fetched page has such a form with a sitekey, the gateway checks the form again in the
+live page, before asking the solver and again before filling it, and gives up with `no_form`
+if the form does not pass. Otherwise it asks the solver for a token, fills
+`g-recaptcha-response`, submits the form, and waits for navigation. It solves
+at most once per fetch. If the solver or the form fails (solver timeout, provider error,
+budget used up, no form on the page), the gateway returns the original page and classifies
+it as usual. A challenge page is `blocked` unless it came back with HTTP 429, so the client
+gets a 423 and, on eBay and Reddit, the profile pauses for 30 minutes. A challenge page
+served with HTTP 429 is `rate_limited` instead: the client gets a 429 and nothing pauses.
+The one exception is Google's `/sorry` page, which is `blocked` on any status, 429
+included. If the solver returns a token and the site rejects it, the gateway returns the
+page after the submit and classifies it like any other page. The `solve_failed` warning in
+the gateway log carries the failure `reason`. When an error exists, `err` holds its class
+and message, with the solver key and Camoufox endpoint redacted.
 
 With a solver, a request can take about 240 s plus any queue wait. The deadline adds up to
 30 s connect, 30 s navigation, 0-15 s `waitForTimeout`, 15 s margin, 120 s solver and 30 s
@@ -150,6 +175,24 @@ Google's terms restrict automated querying of Search. Not yet verified against G
 
 In the cluster, the key comes from the optional `solverApiKey` entry in the
 `stealth-browser-secrets` secret. Without that entry the pod starts with the solver off.
+
+## Configuration
+
+The gateway reads these environment variables at startup and fails to start on an invalid
+value.
+
+| Variable | Required | Default | Effect |
+| --- | --- | --- | --- |
+| `GATEWAY_TOKEN` | yes | none | Bearer token for every route. At least 32 characters. |
+| `CAMOUFOX_WS_URL` | yes | none | WebSocket URL of the Camoufox server. Must start with `ws://` or `wss://`. |
+| `STATE_DIR` | no | `/state` | Where saved sessions and captures are stored. |
+| `PORT` | no | `8080` | Listen port, 1-65535. |
+| `LOG_LEVEL` | no | `info` | One of `debug`, `info`, `warn`, `error`. |
+| `SOLVER_API_KEY` | no | unset | Solver API key. Unset turns the solver off. |
+| `SOLVER_BASE_URL` | no | `https://2captcha.com` | Solver base URL. Must be `https://`. A path prefix such as `/api` is kept. |
+| `SOLVER_MAX_PER_HOUR` | no | `100` | Positive integer. Solve attempts allowed per hour. |
+
+An empty value counts as unset. `SOLVER_PROFILES` is gone; setting it does nothing.
 
 ## Setup
 
@@ -252,9 +295,6 @@ pnpm typecheck
 pnpm build
 CAMOUFOX_WS_URL=ws://localhost:3000/<ws-path> pnpm test:integration
 ```
-
-The gateway reads `GATEWAY_TOKEN` (32+ characters), `CAMOUFOX_WS_URL`, `STATE_DIR`
-(default `/state`), `PORT` (default 8080), and `LOG_LEVEL` (default `info`).
 
 ## Credits
 

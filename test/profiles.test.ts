@@ -4,7 +4,9 @@ import {
 	isProfileName,
 	PROFILES,
 	profileForUrl,
+	scheduleKey,
 } from "../src/profiles.js";
+import { Scheduler } from "../src/throttle.js";
 
 describe("profileForUrl", () => {
 	it.each([
@@ -54,5 +56,44 @@ describe("profile guards", () => {
 		expect(PROFILES.anon.minGapMs).toEqual([3000, 8000]);
 		expect(PROFILES.anon.requiresLogin).toBe(false);
 		expect(PROFILES.ebay.requiresLogin).toBe(true);
+	});
+});
+
+describe("scheduleKey", () => {
+	it("maps ebay subdomains to ebay", () => {
+		expect(scheduleKey(new URL("https://m.ebay.com/itm/1"))).toBe(
+			"profile:ebay",
+		);
+	});
+
+	it("uses the hostname for unknown hosts", () => {
+		expect(scheduleKey(new URL("https://WWW.Amazon.com./s"))).toBe(
+			"host:www.amazon.com",
+		);
+	});
+
+	it("keeps a single-label host apart from the profile of the same name", async () => {
+		const bare = scheduleKey(new URL("http://ebay/"));
+		const real = scheduleKey(new URL("https://www.ebay.com/"));
+		expect(bare).not.toBe(real);
+		const s = new Scheduler({
+			now: () => 0,
+			sleep: async () => {},
+			random: () => 0.5,
+		});
+		s.pause(real);
+		await expect(
+			s.run(bare, PROFILES.anon.minGapMs, async () => 1),
+		).resolves.toBe(1);
+	});
+});
+
+describe("pauseOnBlock", () => {
+	it("is true only for ebay and reddit", () => {
+		expect(
+			Object.values(PROFILES)
+				.filter((p) => p.pauseOnBlock)
+				.map((p) => p.name),
+		).toEqual(["ebay", "reddit"]);
 	});
 });

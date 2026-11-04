@@ -107,6 +107,16 @@ describe("state store", () => {
 		expect(files[0]).toBe("ebay-blocked-2026-01-01T00-00-05.000Z.html");
 	});
 
+	it("saveCapture resolves to the file name", async () => {
+		const store = createStateStore(
+			dir,
+			() => new Date(Date.UTC(2026, 0, 1, 0, 0, 0)),
+		);
+		const name = await store.saveCapture("ebay", "blocked", "<p>x</p>");
+		expect(name).toBe("ebay-blocked-2026-01-01T00-00-00.000Z.html");
+		expect(await readdir(join(dir, "captures"))).toEqual([name]);
+	});
+
 	it("writes captures readable only by the owner, since they can hold session tokens", async () => {
 		const store = createStateStore(dir);
 		await store.saveCapture("ebay", "blocked", "<p>token</p>");

@@ -64,31 +64,70 @@ function redactor(wsEndpoint: string): (error: unknown) => Error {
 }
 
 /**
+ * Runs in the page, so it must stay self-contained. Checks the live form around
+ * the first `.g-recaptcha`: the widget is a `div` that is not
+ * `data-size="invisible"` and is rendered (no `hidden` attribute,
+ * `display: none` or `visibility: hidden` on it or any ancestor), every form control is a
+ * button, a fieldset, a hidden/submit/button/image/reset input or the response textarea, and
+ * nothing in the form is editable. Given a token, writes it into the response
+ * field. Returns whether the form passed.
+ */
+function fillChallengeForm(token: string | null): boolean {
+	const widget = document.querySelector(".g-recaptcha");
+	const form = widget?.closest("form");
+	if (!widget || !form || widget.tagName !== "DIV") return false;
+	if (widget.getAttribute("data-size")?.toLowerCase() === "invisible")
+		return false;
+	for (let node: Element | null = widget; node; node = node.parentElement) {
+		const style = getComputedStyle(node);
+		if (
+			node.hasAttribute("hidden") ||
+			style.display === "none" ||
+			style.visibility === "hidden"
+		)
+			return false;
+	}
+	if (form.querySelector('[contenteditable]:not([contenteditable="false"])'))
+		return false;
+	const allowedInputs = ["hidden", "submit", "button", "image", "reset"];
+	for (const control of Array.from(form.elements)) {
+		const allowed =
+			control.tagName === "BUTTON" ||
+			control.tagName === "FIELDSET" ||
+			(control.tagName === "INPUT" &&
+				allowedInputs.includes((control as HTMLInputElement).type)) ||
+			(control.tagName === "TEXTAREA" &&
+				(control as HTMLTextAreaElement).name === "g-recaptcha-response");
+		if (!allowed) return false;
+	}
+	if (token === null) return true;
+	let field = form.querySelector<HTMLTextAreaElement>(
+		'textarea[name="g-recaptcha-response"]',
+	);
+	if (!field) {
+		field = document.createElement("textarea");
+		field.id = "g-recaptcha-response";
+		field.name = "g-recaptcha-response";
+		field.hidden = true;
+		form.append(field);
+	}
+	field.value = token;
+	return true;
+}
+
+function noFormError(): Error {
+	return Object.assign(new Error("no challenge form encloses the widget"), {
+		code: "no_form" as const,
+	});
+}
+
+/**
  * Write the token into the reCAPTCHA response field of the form around the
  * widget and submit it. Resolves with the navigation's response; rejects when
- * no form encloses the widget or the navigation never arrives.
+ * the live form fails the challenge-form check or the navigation never arrives.
  */
 async function submitToken(page: Page, token: string) {
-	const filled = await page.evaluate((value) => {
-		const form = document.querySelector(".g-recaptcha")?.closest("form");
-		if (!form) return false;
-		let field = form.querySelector<HTMLTextAreaElement>(
-			"textarea#g-recaptcha-response",
-		);
-		if (!field) {
-			field = document.createElement("textarea");
-			field.id = "g-recaptcha-response";
-			field.name = "g-recaptcha-response";
-			field.hidden = true;
-			form.append(field);
-		}
-		field.value = value;
-		return true;
-	}, token);
-	if (!filled)
-		throw Object.assign(new Error("no form encloses the challenge"), {
-			code: "no_form" as const,
-		});
+	if (!(await page.evaluate(fillChallengeForm, token))) throw noFormError();
 	const navigation = page
 		.waitForNavigation({
 			waitUntil: "domcontentloaded",
@@ -135,6 +174,7 @@ async function solveOnce(
 	const challenge = detectChallenge(loaded.html, loaded.finalUrl);
 	if (!challenge) return loaded;
 	try {
+		if (!(await page.evaluate(fillChallengeForm, null))) throw noFormError();
 		const token = await solver.solve(challenge);
 		const response = await submitToken(page, token);
 		const html = await page.content();

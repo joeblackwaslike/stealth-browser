@@ -54,7 +54,7 @@ export type StateStore = {
 		profile: ProfileName,
 		kind: "blocked" | "session_expired",
 		html: string,
-	): Promise<void>;
+	): Promise<string>;
 };
 
 const MAX_CAPTURES = 20;
@@ -141,11 +141,8 @@ export function createStateStore(
 			await mkdir(capturesDir, { recursive: true });
 			const stamp = now().toISOString().replaceAll(":", "-");
 			// Captures can hold session tokens, same as the saved state.
-			await writeFile(
-				join(capturesDir, `${profile}-${kind}-${stamp}.html`),
-				html,
-				{ mode: 0o600 },
-			);
+			const name = `${profile}-${kind}-${stamp}.html`;
+			await writeFile(join(capturesDir, name), html, { mode: 0o600 });
 			const files = (await readdir(capturesDir)).sort((a, b) =>
 				(a.match(TIMESTAMP_START)?.[0] ?? a).localeCompare(
 					b.match(TIMESTAMP_START)?.[0] ?? b,
@@ -156,6 +153,7 @@ export function createStateStore(
 					.slice(0, -MAX_CAPTURES)
 					.map((f) => rm(join(capturesDir, f), { force: true })),
 			);
+			return name;
 		},
 	};
 }

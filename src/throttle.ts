@@ -1,5 +1,3 @@
-import type { Profile, ProfileName } from "./profiles.js";
-
 /** Injectable time and randomness so the scheduler is testable without real timers. */
 export type SchedulerClock = {
 	now: () => number;
@@ -15,35 +13,38 @@ export class QueueFullError extends Error {
 	}
 }
 
-/** Thrown when a profile is paused after a bot challenge. `until` is epoch ms. */
+/** Thrown when a key is paused after a bot challenge. `until` is epoch ms. */
 export class ProfilePausedError extends Error {
-	readonly profile: ProfileName;
+	readonly key: string;
 	readonly until: number;
 
-	constructor(profile: ProfileName, until: number) {
-		super(`profile ${profile} paused until ${until}`);
+	constructor(key: string, until: number) {
+		super(`${key} paused until ${until}`);
 		this.name = "ProfilePausedError";
-		this.profile = profile;
+		this.key = key;
 		this.until = until;
 	}
 }
 
+const MAX_TRACKED_KEYS = 256;
+/** Longer than the largest pacing gap, so a forgotten key has no gap left to wait. */
+const IDLE_AFTER_MS = 60_000;
+
 /**
  * Single-slot FIFO scheduler for the one shared browser. Enforces a jittered
- * per-profile gap between task starts, caps the waiting queue, and pauses a
- * profile after a block.
+ * per-key gap between task starts, caps the waiting queue, and pauses a
+ * key after a block.
  */
 export class Scheduler {
 	private tail: Promise<void> = Promise.resolve();
 	/** Running plus waiting tasks. */
 	private inFlight = 0;
-	private readonly lastStart = new Map<ProfileName, number>();
-	private readonly pausedUntilMs = new Map<ProfileName, number>();
+	private readonly lastStart = new Map<string, number>();
+	private readonly pausedUntilMs = new Map<string, number>();
 	private readonly maxQueue: number;
 	private readonly blockPauseMs: number;
 
 	constructor(
-		private readonly profiles: Readonly<Record<ProfileName, Profile>>,
 		private readonly clock: SchedulerClock,
 		opts: { maxQueue?: number; blockPauseMs?: number } = {},
 	) {
@@ -51,22 +52,26 @@ export class Scheduler {
 		this.blockPauseMs = opts.blockPauseMs ?? 1_800_000;
 	}
 
-	/** Epoch ms when the profile's pause ends, or undefined if not paused. */
-	pausedUntil(profile: ProfileName): number | undefined {
-		const until = this.pausedUntilMs.get(profile);
+	/** Epoch ms when the key's pause ends, or undefined if not paused. */
+	pausedUntil(key: string): number | undefined {
+		const until = this.pausedUntilMs.get(key);
 		return until !== undefined && this.clock.now() < until ? until : undefined;
 	}
 
-	/** Pause a profile for `blockPauseMs` from now. */
-	pause(profile: ProfileName): void {
-		this.pausedUntilMs.set(profile, this.clock.now() + this.blockPauseMs);
+	/** Pause a key for `blockPauseMs` from now. */
+	pause(key: string): void {
+		this.pausedUntilMs.set(key, this.clock.now() + this.blockPauseMs);
 	}
 
-	/** Queue `task` behind all earlier tasks, honouring the profile's gap and pause. */
-	run<T>(profile: ProfileName, task: () => Promise<T>): Promise<T> {
-		const until = this.pausedUntil(profile);
+	/** Queue `task` behind all earlier tasks, honouring the key's gap and pause. */
+	run<T>(
+		key: string,
+		minGapMs: readonly [number, number],
+		task: () => Promise<T>,
+	): Promise<T> {
+		const until = this.pausedUntil(key);
 		if (until !== undefined)
-			return Promise.reject(new ProfilePausedError(profile, until));
+			return Promise.reject(new ProfilePausedError(key, until));
 		// One in-flight task is running; maxQueue more may wait.
 		if (this.inFlight > this.maxQueue)
 			return Promise.reject(new QueueFullError());
@@ -76,10 +81,11 @@ export class Scheduler {
 			try {
 				// Check the pause before and after the gap, so a paused task never
 				// holds the only browser slot for its full gap.
-				this.throwIfPaused(profile);
-				await this.waitForGap(profile);
-				this.throwIfPaused(profile);
-				this.lastStart.set(profile, this.clock.now());
+				this.throwIfPaused(key);
+				await this.waitForGap(key, minGapMs);
+				this.throwIfPaused(key);
+				this.lastStart.set(key, this.clock.now());
+				this.pruneIdle();
 				return await task();
 			} finally {
 				this.inFlight--;
@@ -92,15 +98,26 @@ export class Scheduler {
 		return result;
 	}
 
-	private throwIfPaused(profile: ProfileName): void {
-		const until = this.pausedUntil(profile);
-		if (until !== undefined) throw new ProfilePausedError(profile, until);
+	private pruneIdle(): void {
+		if (this.lastStart.size <= MAX_TRACKED_KEYS) return;
+		const now = this.clock.now();
+		for (const [key, last] of this.lastStart)
+			if (now - last > IDLE_AFTER_MS && this.pausedUntil(key) === undefined)
+				this.lastStart.delete(key);
 	}
 
-	private async waitForGap(profile: ProfileName): Promise<void> {
-		const last = this.lastStart.get(profile);
+	private throwIfPaused(key: string): void {
+		const until = this.pausedUntil(key);
+		if (until !== undefined) throw new ProfilePausedError(key, until);
+	}
+
+	private async waitForGap(
+		key: string,
+		minGapMs: readonly [number, number],
+	): Promise<void> {
+		const last = this.lastStart.get(key);
 		if (last === undefined) return;
-		const [min, max] = this.profiles[profile].minGapMs;
+		const [min, max] = minGapMs;
 		const gap = min + this.clock.random() * (max - min);
 		const wait = last + gap - this.clock.now();
 		if (wait > 0) await this.clock.sleep(wait);

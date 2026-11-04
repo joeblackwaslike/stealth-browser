@@ -11,6 +11,8 @@ export type Profile = {
 	domains: readonly string[];
 	minGapMs: readonly [number, number];
 	requiresLogin: boolean;
+	/** Whether a blocked verdict pauses this key for the block-pause window. */
+	pauseOnBlock: boolean;
 };
 
 /** All profiles, keyed by name. Gaps are jittered between [min, max] ms. */
@@ -20,24 +22,28 @@ export const PROFILES: Readonly<Record<ProfileName, Profile>> = {
 		domains: ["ebay.com"],
 		minGapMs: [20000, 40000],
 		requiresLogin: true,
+		pauseOnBlock: true,
 	},
 	reddit: {
 		name: "reddit",
 		domains: ["reddit.com"],
 		minGapMs: [5000, 10000],
 		requiresLogin: true,
+		pauseOnBlock: true,
 	},
 	google: {
 		name: "google",
 		domains: ["google.com"],
 		minGapMs: [8000, 15000],
 		requiresLogin: false,
+		pauseOnBlock: false,
 	},
 	anon: {
 		name: "anon",
 		domains: [],
 		minGapMs: [3000, 8000],
 		requiresLogin: false,
+		pauseOnBlock: false,
 	},
 };
 
@@ -65,4 +71,16 @@ export function profileForUrl(url: URL): ProfileName {
 		}
 	}
 	return "anon";
+}
+
+/**
+ * Key pacing and pauses are tracked under: `profile:<name>` for a matched
+ * profile, or `host:<hostname>` (lowercased, without its DNS root dot) for
+ * `anon`, so a bare host like `ebay` never shares a profile's schedule.
+ */
+export function scheduleKey(url: URL): string {
+	const name = profileForUrl(url);
+	return name === "anon"
+		? `host:${url.hostname.toLowerCase().replace(/\.$/, "")}`
+		: `profile:${name}`;
 }

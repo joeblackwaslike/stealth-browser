@@ -41,8 +41,11 @@ describe("loadConfig", () => {
 			expect(loadConfig(required)).toMatchObject({
 				solverApiKey: undefined,
 				solverBaseUrl: "https://2captcha.com",
-				solverMaxPerHour: 20,
 			});
+		});
+
+		it("defaults the solver budget to 100 per hour", () => {
+			expect(loadConfig(required).solverMaxPerHour).toBe(100);
 		});
 
 		it("reads overrides", () => {
@@ -60,24 +63,14 @@ describe("loadConfig", () => {
 			});
 		});
 
-		it("defaults solver profiles to google, including for an empty value", () => {
-			expect(loadConfig(required).solverProfiles).toEqual(["google"]);
-			expect(
-				loadConfig({ ...required, SOLVER_PROFILES: "" }).solverProfiles,
-			).toEqual(["google"]);
+		it("has no solverProfiles in the loaded config", () => {
+			expect(loadConfig(required)).not.toHaveProperty("solverProfiles");
 		});
 
-		it("parses a comma-separated profile list and trims whitespace", () => {
-			expect(
-				loadConfig({ ...required, SOLVER_PROFILES: " google , anon" })
-					.solverProfiles,
-			).toEqual(["google", "anon"]);
-		});
-
-		it("rejects an unknown solver profile name", () => {
+		it("ignores SOLVER_PROFILES", () => {
 			expect(() =>
 				loadConfig({ ...required, SOLVER_PROFILES: "google,nope" }),
-			).toThrow();
+			).not.toThrow();
 		});
 
 		it("rejects a non-positive hourly budget", () => {

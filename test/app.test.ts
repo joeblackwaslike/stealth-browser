@@ -5,7 +5,6 @@ import { pino } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type AppDeps, createApp } from "../src/app.js";
 import type { Fetcher, FetchRequest, FetchResult } from "../src/browser.js";
-import { PROFILES, type Profile, type ProfileName } from "../src/profiles.js";
 import type { Solver } from "../src/solver/index.js";
 import {
 	createStateStore,
@@ -16,13 +15,6 @@ import { Scheduler } from "../src/throttle.js";
 
 const TOKEN = "test-token";
 const auth = { authorization: `Bearer ${TOKEN}` };
-const noGap = Object.fromEntries(
-	Object.entries(PROFILES).map(([name, p]) => [
-		name,
-		{ ...p, minGapMs: [0, 0] as const },
-	]),
-) as Record<ProfileName, Profile>;
-
 function cookie(name: string): StorageState["cookies"][number] {
 	return {
 		name,
@@ -48,6 +40,8 @@ function deferred() {
 	return { promise, release };
 }
 
+const CHALLENGE = '<form><div class="g-recaptcha"></div></form>';
+
 const okResult = (
 	url: string,
 	storageState = stateWith(),
@@ -57,12 +51,12 @@ const okResult = (
 let dir: string;
 let store: StateStore;
 let calls: number;
+let sleeps: number[];
 
 function build(
 	fetcher: Fetcher,
 	logger = pino({ level: "silent" }) as AppDeps["logger"],
 	solver?: Solver,
-	solverProfiles: readonly ProfileName[] = ["google"],
 ) {
 	const counted: Fetcher = (req) => {
 		calls++;
@@ -70,18 +64,19 @@ function build(
 	};
 	const clock = {
 		now: () => 1_000_000,
-		sleep: async () => {},
+		sleep: async (ms: number) => {
+			sleeps.push(ms);
+		},
 		random: () => 0,
 	};
 	return createApp({
 		token: TOKEN,
 		fetcher: counted,
-		scheduler: new Scheduler(noGap, clock),
+		scheduler: new Scheduler(clock),
 		store,
 		logger,
 		now: clock.now,
 		solver,
-		solverProfiles,
 	});
 }
 
@@ -96,6 +91,7 @@ beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "app-test-"));
 	store = createStateStore(dir);
 	calls = 0;
+	sleeps = [];
 });
 afterEach(() => rm(dir, { recursive: true, force: true }));
 
@@ -128,25 +124,116 @@ describe("app", () => {
 		expect(calls).toBe(0);
 	});
 
-	it("returns 423 and pauses the profile when the page is a challenge", async () => {
-		const app = build(async (r) =>
-			okResult(r.url, stateWith(), '<div class="g-recaptcha"></div>'),
-		);
-		const first = await post(app, { url: "https://example.com/" });
-		expect(first.status).toBe(423);
-		expect(await first.json()).toEqual({
+	it("423 body carries host, marker, html and capture", async () => {
+		const html = CHALLENGE;
+		const app = build(async (r) => okResult(r.url, stateWith(), html));
+		const res = await post(app, { url: "https://example.com/" });
+		expect(res.status).toBe(423);
+		const body = (await res.json()) as { capture: string };
+		expect(body).toEqual({
 			blocked: true,
 			profile: "anon",
+			host: "example.com",
 			reason: "captcha",
+			marker: "captcha_widget:g-recaptcha",
+			html,
+			capture: expect.stringMatching(/^anon-blocked-.*\.html$/),
 		});
+		expect(await readFile(join(dir, "captures", body.capture), "utf8")).toBe(
+			html,
+		);
+	});
+
+	it("omits capture when the capture write fails", async () => {
+		store = {
+			...store,
+			saveCapture: async () => {
+				throw new Error("ENOSPC");
+			},
+		};
+		const app = build(async (r) => okResult(r.url, stateWith(), CHALLENGE));
+		const res = await post(app, { url: "https://example.com/" });
+		expect(res.status).toBe(423);
+		const body = await res.json();
+		expect(body).toMatchObject({ blocked: true, html: CHALLENGE });
+		expect(body).not.toHaveProperty("capture");
+	});
+
+	it("an unsolved challenge on anon returns 423 and does not pause the host", async () => {
+		const app = build(async (r) => okResult(r.url, stateWith(), CHALLENGE));
+		expect((await post(app, { url: "https://example.com/" })).status).toBe(423);
 		const second = await post(app, { url: "https://example.com/" });
+		expect(second.status).toBe(423);
+		expect(await second.json()).toMatchObject({ reason: "captcha" });
+		expect(calls).toBe(2);
+	});
+
+	it("an unsolved challenge on ebay pauses ebay", async () => {
+		await store.write("ebay", stateWith("s"));
+		const app = build(async (r) => okResult(r.url, stateWith(), CHALLENGE));
+		expect(
+			(await post(app, { url: "https://www.ebay.com/itm/1" })).status,
+		).toBe(423);
+		const second = await post(app, { url: "https://www.ebay.com/itm/2" });
 		expect(second.status).toBe(423);
 		expect(await second.json()).toEqual({
 			blocked: true,
-			profile: "anon",
+			profile: "ebay",
 			reason: "paused",
 		});
 		expect(Number(second.headers.get("retry-after"))).toBe(1800);
+		expect(calls).toBe(1);
+	});
+
+	it("a block on one unknown host does not pause another unknown host", async () => {
+		const app = build(async (r) =>
+			r.url.includes("blocked.example")
+				? okResult(r.url, stateWith(), CHALLENGE)
+				: okResult(r.url),
+		);
+		await post(app, { url: "https://blocked.example/" });
+		const other = await post(app, { url: "https://other.example/" });
+		expect(other.status).toBe(200);
+		expect(calls).toBe(2);
+	});
+
+	it("paces each unknown host on its own key with the anon gap", async () => {
+		const app = build(async (r) => okResult(r.url));
+		await post(app, { url: "https://one.example/" });
+		await post(app, { url: "https://two.example/" });
+		expect(sleeps).toEqual([]);
+		await post(app, { url: "https://one.example/again" });
+		expect(sleeps).toHaveLength(1);
+		expect(sleeps[0]).toBeGreaterThanOrEqual(3000);
+	});
+
+	it("paces eBay with eBay's gap", async () => {
+		await store.write("ebay", stateWith("s"));
+		const app = build(async (r) => okResult(r.url));
+		await post(app, { url: "https://www.ebay.com/itm/1" });
+		await post(app, { url: "https://www.ebay.com/itm/2" });
+		expect(sleeps).toHaveLength(1);
+		expect(sleeps[0]).toBeGreaterThanOrEqual(20000);
+	});
+
+	it("with a spent budget on ebay the challenge stays unsolved and blocks and pauses", async () => {
+		await store.write("ebay", stateWith("s"));
+		const app = build(
+			async (r) => ({
+				...okResult(r.url, stateWith(), CHALLENGE),
+				solve: "failed",
+				solveReason: "budget_exceeded",
+			}),
+			undefined,
+			{ solve: async () => "TOKEN" },
+		);
+		const first = await post(app, { url: "https://www.ebay.com/itm/1" });
+		expect(first.status).toBe(423);
+		expect(await first.json()).toMatchObject({
+			marker: "captcha_widget:g-recaptcha",
+		});
+		const second = await post(app, { url: "https://www.ebay.com/itm/2" });
+		expect(await second.json()).toMatchObject({ reason: "paused" });
 		expect(calls).toBe(1);
 	});
 
@@ -198,16 +285,21 @@ describe("app", () => {
 	});
 
 	it("pauses the profile before the next queued request can start", async () => {
+		await store.write("ebay", stateWith("s"));
 		const gate = deferred();
 		const app = build(async (r) => {
 			if (calls === 1) {
 				await gate.promise;
-				return okResult(r.url, stateWith(), '<div class="g-recaptcha"></div>');
+				return okResult(
+					r.url,
+					stateWith(),
+					'<form><div class="g-recaptcha"></div></form>',
+				);
 			}
 			return okResult(r.url);
 		});
-		const first = post(app, { url: "https://example.com/a" });
-		const second = post(app, { url: "https://example.com/b" });
+		const first = post(app, { url: "https://www.ebay.com/itm/a" });
+		const second = post(app, { url: "https://www.ebay.com/itm/b" });
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		gate.release();
 		expect((await first).status).toBe(423);
@@ -329,22 +421,8 @@ describe("app", () => {
 		expect((await store.read("reddit"))?.state).toEqual(stateB);
 	});
 
-	it("passes the solver only to profiles on the solver list", async () => {
-		const solver: Solver = { solve: async () => "TOKEN" };
-		const seen: FetchRequest[] = [];
-		const record: Fetcher = async (r) => {
-			seen.push(r);
-			return okResult(r.url);
-		};
-		const withSolver = build(record, undefined, solver);
-		await post(withSolver, { url: "https://www.google.com/a" });
-		await post(withSolver, { url: "https://example.com/b" });
-		const without = build(record);
-		await post(without, { url: "https://www.google.com/c" });
-		expect(seen.map((r) => r.solver)).toEqual([solver, undefined, undefined]);
-	});
-
-	it("passes the solver to anon when the list includes it", async () => {
+	it("passes the solver to the fetcher for every profile", async () => {
+		await store.write("ebay", stateWith("s"));
 		const solver: Solver = { solve: async () => "TOKEN" };
 		const seen: FetchRequest[] = [];
 		const app = build(
@@ -354,13 +432,23 @@ describe("app", () => {
 			},
 			undefined,
 			solver,
-			["google", "anon"],
 		);
-		await post(app, { url: "https://example.com/" });
-		expect(seen.map((r) => r.solver)).toEqual([solver]);
+		await post(app, { url: "https://www.google.com/a" });
+		await post(app, { url: "https://example.com/b" });
+		await post(app, { url: "https://www.ebay.com/itm/1" });
+		expect(seen.map((r) => r.solver)).toEqual([solver, solver, solver]);
 	});
 
-	it("turns a failed solve on google's sorry page into a 423, then a paused 423", async () => {
+	it("a signup form with a widget returns 200", async () => {
+		const html =
+			'<form><input type="email" name="e"><div class="g-recaptcha"></div></form>';
+		const app = build(async (r) => okResult(r.url, stateWith(), html));
+		const res = await post(app, { url: "https://example.com/signup" });
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe(html);
+	});
+
+	it("turns a failed solve on google's sorry page into a 423 that does not pause google", async () => {
 		const sorry = await readFile(
 			new URL("./fixtures/google-sorry.html", import.meta.url),
 			"utf8",
@@ -379,17 +467,18 @@ describe("app", () => {
 		);
 		const first = await post(app, { url: "https://www.google.com/search?q=x" });
 		expect(first.status).toBe(423);
-		expect(await first.json()).toEqual({
+		expect(await first.json()).toMatchObject({
 			blocked: true,
 			profile: "google",
 			reason: "google_sorry",
+			marker: "google_sorry",
 		});
 		const second = await post(app, {
 			url: "https://www.google.com/search?q=x",
 		});
 		expect(second.status).toBe(423);
-		expect(await second.json()).toMatchObject({ reason: "paused" });
-		expect(calls).toBe(1);
+		expect(await second.json()).toMatchObject({ reason: "google_sorry" });
+		expect(calls).toBe(2);
 	});
 
 	it("logs the solve outcome, and warns without the token when it failed", async () => {
@@ -430,7 +519,6 @@ describe("app", () => {
 			}),
 			logger,
 			{ solve: async () => "SECRET-TOKEN" },
-			["anon"],
 		);
 		await post(app, { url: "https://example.com/" });
 		const warn = lines
@@ -471,7 +559,6 @@ describe("app", () => {
 			}),
 			logger,
 			{ solve: async () => "TOKEN" },
-			["anon"],
 		);
 		await post(app, { url: "https://example.com/" });
 		const warn = lines
@@ -500,6 +587,109 @@ describe("app", () => {
 		expect(logs.find((l) => l.verdict)?.solve).toBe("solved");
 		expect(logs.some((l) => l.msg === "solve_failed")).toBe(false);
 	});
+
+	it.each([
+		[
+			"a solved challenge",
+			{ solve: "solved" as const },
+			{
+				verdict: "ok",
+				status: 200,
+				marker: undefined,
+				solve: "solved",
+				solveReason: undefined,
+				challengeType: "recaptcha_v2",
+				attempts: 1,
+			},
+		],
+		[
+			"a failed solve",
+			{
+				html: CHALLENGE,
+				solve: "failed" as const,
+				solveReason: "timeout" as const,
+			},
+			{
+				verdict: "blocked",
+				status: 423,
+				marker: "captcha_widget:g-recaptcha",
+				solve: "failed",
+				solveReason: "timeout",
+				challengeType: "recaptcha_v2",
+				attempts: 1,
+			},
+		],
+		[
+			"a spent budget",
+			{
+				html: CHALLENGE,
+				solve: "failed" as const,
+				solveReason: "budget_exceeded" as const,
+			},
+			{
+				verdict: "blocked",
+				status: 423,
+				marker: "captcha_widget:g-recaptcha",
+				solve: "failed",
+				solveReason: "budget_exceeded",
+				challengeType: undefined,
+				attempts: undefined,
+			},
+		],
+		[
+			"a page with no form",
+			{
+				html: CHALLENGE,
+				solve: "failed" as const,
+				solveReason: "no_form" as const,
+			},
+			{
+				verdict: "blocked",
+				status: 423,
+				marker: "captcha_widget:g-recaptcha",
+				solve: "failed",
+				solveReason: "no_form",
+				challengeType: undefined,
+				attempts: undefined,
+			},
+		],
+		[
+			"a plain 200",
+			{},
+			{
+				verdict: "ok",
+				status: 200,
+				marker: undefined,
+				solve: undefined,
+				solveReason: undefined,
+				challengeType: undefined,
+				attempts: undefined,
+			},
+		],
+	])(
+		"logs the dashboard fields on the done line for %s",
+		async (_name, outcome, expected) => {
+			const lines: string[] = [];
+			const logger = pino(
+				{ level: "info" },
+				{ write: (line: string) => void lines.push(line) },
+			) as AppDeps["logger"];
+			const app = build(
+				async (r) => ({ ...okResult(r.url), ...outcome }) as FetchResult,
+				logger,
+				{ solve: async () => "TOKEN" },
+			);
+			await post(app, { url: "https://example.com/" });
+			const entry = lines
+				.map((line) => JSON.parse(line))
+				.find((l) => l.verdict !== undefined);
+			const fields = Object.keys(expected) as (keyof typeof expected)[];
+			expect(entry).toMatchObject({ entry: "anon", host: "example.com" });
+			expect(Object.fromEntries(fields.map((f) => [f, entry[f]]))).toEqual(
+				expected,
+			);
+		},
+	);
 
 	it("PUT rejects the anon profile with 404 and a malformed body with 400", async () => {
 		const app = build(async (r) => okResult(r.url));

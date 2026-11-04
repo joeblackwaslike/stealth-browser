@@ -7,8 +7,10 @@ import { classifyPage } from "./detect.js";
 import {
 	isLoginProfile,
 	type LoginProfileName,
+	PROFILES,
 	type ProfileName,
 	profileForUrl,
+	scheduleKey,
 } from "./profiles.js";
 import type { Solver } from "./solver/index.js";
 import {
@@ -36,8 +38,6 @@ export type AppDeps = {
 	logger: Logger;
 	now?: () => number;
 	solver?: Solver;
-	/** Profiles whose fetches get the solver. */
-	solverProfiles?: readonly ProfileName[];
 };
 
 /** The saved-login file couldn't be read (corrupt JSON, EACCES, EIO). */
@@ -54,7 +54,6 @@ function parseUrl(raw: string): URL | undefined {
 /** Build the gateway app. Every route sits behind the bearer token. */
 export function createApp(deps: AppDeps): Hono {
 	const { fetcher, scheduler, store, logger, solver } = deps;
-	const solverProfiles = new Set(deps.solverProfiles);
 	const now = deps.now ?? Date.now;
 	const readState = (name: LoginProfileName) =>
 		store.read(name).catch((error: unknown) => {
@@ -71,12 +70,23 @@ export function createApp(deps: AppDeps): Hono {
 		let host = "";
 		let verdict = "none";
 		let solve: FetchResult["solve"];
+		let solveReason: FetchResult["solveReason"];
+		let marker: string | undefined;
 		const done = (res: Response): Response => {
+			const reachedSolver =
+				solve !== undefined &&
+				solveReason !== "budget_exceeded" &&
+				solveReason !== "no_form";
 			logger.info({
 				profile,
+				entry: profile,
 				host,
 				verdict,
+				marker,
 				solve,
+				solveReason,
+				challengeType: reachedSolver ? "recaptcha_v2" : undefined,
+				attempts: reachedSolver ? 1 : undefined,
 				status: res.status,
 				ms: now() - started,
 			});
@@ -111,35 +121,42 @@ export function createApp(deps: AppDeps): Hono {
 
 			// Read the login when the task starts, not when it was queued, so a
 			// waiting request uses the cookies the previous request refreshed.
-			const { result, page } = await scheduler.run(resolved, async () => {
-				let storageState: StorageState | undefined;
-				if (isLoginProfile(resolved)) {
-					const stored = await readState(resolved);
-					storageState = stored?.state;
-					generation = stored?.generation ?? 0;
-				}
-				const fetched = await fetcher({
-					url,
-					waitForTimeout,
-					storageState,
-					solver: solverProfiles.has(resolved) ? solver : undefined,
-				});
-				const classified = classifyPage({
-					profile: resolved,
-					html: fetched.html,
-					finalUrl: parseUrl(fetched.finalUrl) ? fetched.finalUrl : url,
-					cookieNames: fetched.storageState.cookies.map(
-						(cookie) => cookie.name,
-					),
-					status: fetched.status,
-				});
-				// Pause inside the task, before it frees its slot, so no queued
-				// request for this profile can start after a block.
-				if (classified.kind === "blocked") scheduler.pause(resolved);
-				return { result: fetched, page: classified };
-			});
+			const key = scheduleKey(parsed);
+			const { result, page } = await scheduler.run(
+				key,
+				PROFILES[resolved].minGapMs,
+				async () => {
+					let storageState: StorageState | undefined;
+					if (isLoginProfile(resolved)) {
+						const stored = await readState(resolved);
+						storageState = stored?.state;
+						generation = stored?.generation ?? 0;
+					}
+					const fetched = await fetcher({
+						url,
+						waitForTimeout,
+						storageState,
+						solver,
+					});
+					const classified = classifyPage({
+						profile: resolved,
+						html: fetched.html,
+						finalUrl: parseUrl(fetched.finalUrl) ? fetched.finalUrl : url,
+						cookieNames: fetched.storageState.cookies.map(
+							(cookie) => cookie.name,
+						),
+						status: fetched.status,
+					});
+					// Pause inside the task, before it frees its slot, so no queued
+					// request for this key can start after a block.
+					if (classified.kind === "blocked" && PROFILES[resolved].pauseOnBlock)
+						scheduler.pause(key);
+					return { result: fetched, page: classified };
+				},
+			);
 			verdict = page.kind;
 			solve = result.solve;
+			solveReason = result.solve === "failed" ? result.solveReason : undefined;
 			if (result.solve === "failed") {
 				logger.warn(
 					{
@@ -153,10 +170,19 @@ export function createApp(deps: AppDeps): Hono {
 			}
 
 			if (page.kind === "blocked") {
-				await saveCapture(resolved, "blocked", result.html);
+				marker = page.marker;
+				const capture = await saveCapture(resolved, "blocked", result.html);
 				return done(
 					c.json(
-						{ blocked: true, profile: resolved, reason: page.reason },
+						{
+							blocked: true,
+							profile: resolved,
+							host,
+							reason: page.reason,
+							marker: page.marker,
+							html: result.html,
+							...(capture && { capture }),
+						},
 						423,
 					),
 				);
@@ -224,11 +250,12 @@ export function createApp(deps: AppDeps): Hono {
 		profile: ProfileName,
 		kind: "blocked" | "session_expired",
 		html: string,
-	): Promise<void> {
+	): Promise<string | undefined> {
 		try {
-			await store.saveCapture(profile, kind, html);
+			return await store.saveCapture(profile, kind, html);
 		} catch (error) {
 			logger.warn({ profile, kind, err: String(error) }, "capture_save_failed");
+			return undefined;
 		}
 	}
 
