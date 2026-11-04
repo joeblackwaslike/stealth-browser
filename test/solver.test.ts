@@ -49,6 +49,24 @@ describe("createTwoCaptchaSolver", () => {
 		expect(poll.searchParams.get("id")).toBe("42");
 	});
 
+	it("refuses redirects on submit and poll so the key stays on https", async () => {
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(json({ status: 1, request: "42" }))
+			.mockResolvedValueOnce(json({ status: 1, request: "TOKEN" }));
+		const solver = createTwoCaptchaSolver({
+			apiKey: "SECRETKEY",
+			baseUrl: "https://2captcha.test",
+			pollIntervalMs: 0,
+			fetchImpl,
+		});
+
+		await solver.solve(challenge);
+
+		expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("error");
+		expect(fetchImpl.mock.calls[1]?.[1]?.redirect).toBe("error");
+	});
+
 	it("omits data-s when the challenge has none", async () => {
 		const fetchImpl = vi
 			.fn<typeof fetch>()

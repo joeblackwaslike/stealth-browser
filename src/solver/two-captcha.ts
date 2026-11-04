@@ -85,6 +85,7 @@ export function createTwoCaptchaSolver(opts: {
 		try {
 			response = await fetchImpl(url, {
 				signal: AbortSignal.timeout(Math.max(1, remaining)),
+				redirect: "error",
 			});
 		} catch (error) {
 			// Past the deadline the error is our own abort, not a provider failure.
