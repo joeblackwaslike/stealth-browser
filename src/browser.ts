@@ -1,18 +1,38 @@
-import { type Browser, firefox } from "playwright-core";
+import { type Browser, firefox, type Page } from "playwright-core";
+import { detectChallenge, hasChallenge } from "./detect.js";
+import {
+	isSolveReason,
+	SOLVER_TIMEOUT_MS,
+	SolveBudgetExceededError,
+	type SolveReason,
+	type Solver,
+} from "./solver/index.js";
 import type { StorageState } from "./state-store.js";
 
 export type FetchRequest = {
 	url: string;
 	waitForTimeout: number;
 	storageState?: StorageState;
+	solver?: Solver;
 };
 
-export type FetchResult = {
+/**
+ * Outcome of the one solve attempt; `solve` is absent when none was made.
+ * `solveReason` is the fixed vocabulary for why it failed; `solveError` is the
+ * thrown error's class and message, with the ws endpoint redacted.
+ */
+type SolveOutcome =
+	| { solve?: undefined; solveReason?: undefined }
+	| { solve: "solved"; solveReason?: undefined }
+	| { solve: "failed"; solveReason: SolveReason; solveError?: string };
+
+type PageRead = {
 	html: string;
 	finalUrl: string;
 	status: number | null;
-	storageState: StorageState;
-};
+} & SolveOutcome;
+
+export type FetchResult = PageRead & { storageState: StorageState };
 
 /** Navigates to a URL in the shared browser and returns the rendered page. */
 export type Fetcher = (req: FetchRequest) => Promise<FetchResult>;
@@ -41,6 +61,103 @@ function redactor(wsEndpoint: string): (error: unknown) => Error {
 		redacted.name = original.name;
 		return redacted;
 	};
+}
+
+/**
+ * Write the token into the reCAPTCHA response field of the form around the
+ * widget and submit it. Resolves with the navigation's response; rejects when
+ * no form encloses the widget or the navigation never arrives.
+ */
+async function submitToken(page: Page, token: string) {
+	const filled = await page.evaluate((value) => {
+		const form = document.querySelector(".g-recaptcha")?.closest("form");
+		if (!form) return false;
+		let field = form.querySelector<HTMLTextAreaElement>(
+			"textarea#g-recaptcha-response",
+		);
+		if (!field) {
+			field = document.createElement("textarea");
+			field.id = "g-recaptcha-response";
+			field.name = "g-recaptcha-response";
+			field.hidden = true;
+			form.append(field);
+		}
+		field.value = value;
+		return true;
+	}, token);
+	if (!filled)
+		throw Object.assign(new Error("no form encloses the challenge"), {
+			code: "no_form" as const,
+		});
+	const navigation = page
+		.waitForNavigation({
+			waitUntil: "domcontentloaded",
+			timeout: NAVIGATION_TIMEOUT_MS,
+		})
+		.catch((error) => {
+			throw Object.assign(new Error("navigation failed"), {
+				code: "navigation_failed" as const,
+				cause: error,
+			});
+		});
+	navigation.catch(() => undefined);
+	// The navigation can tear down the context before this evaluate returns,
+	// so only the navigation decides whether the submit worked.
+	await page
+		.evaluate(() => {
+			const form = document.querySelector(".g-recaptcha")?.closest("form");
+			if (form) HTMLFormElement.prototype.submit.call(form);
+		})
+		.catch(() => undefined);
+	return navigation;
+}
+
+function classifySolveError(error: unknown): SolveReason {
+	if (error instanceof SolveBudgetExceededError) return "budget_exceeded";
+	if (error instanceof Error && "code" in error) {
+		const code = (error as { code?: unknown }).code;
+		if (isSolveReason(code)) return code;
+	}
+	return "unknown";
+}
+
+/**
+ * Solve the page's challenge, if it has one, and read the page it leads to.
+ * Any failure, or a challenge still present after submitting, keeps the
+ * app's blocked verdict and 30-minute pause.
+ */
+async function solveOnce(
+	page: Page,
+	solver: Solver,
+	loaded: PageRead,
+	redact: (error: unknown) => Error,
+): Promise<PageRead> {
+	const challenge = detectChallenge(loaded.html, loaded.finalUrl);
+	if (!challenge) return loaded;
+	try {
+		const token = await solver.solve(challenge);
+		const response = await submitToken(page, token);
+		const html = await page.content();
+		const finalUrl = page.url();
+		const status = response?.status() ?? null;
+		if (hasChallenge(html, finalUrl))
+			return {
+				html,
+				finalUrl,
+				status,
+				solve: "failed",
+				solveReason: "challenge_remained",
+			};
+		return { html, finalUrl, status, solve: "solved" };
+	} catch (error) {
+		const safe = redact(error);
+		return {
+			...loaded,
+			solve: "failed",
+			solveReason: classifySolveError(error),
+			solveError: `${safe.name}: ${safe.message}`,
+		};
+	}
 }
 
 /**
@@ -93,12 +210,15 @@ export function createCamoufoxFetcher(
 					timeout: NAVIGATION_TIMEOUT_MS,
 				});
 				await page.waitForTimeout(req.waitForTimeout);
-				return {
+				const loaded: PageRead = {
 					html: await page.content(),
 					finalUrl: page.url(),
 					status: response?.status() ?? null,
-					storageState: await context.storageState(),
 				};
+				const read = req.solver
+					? await solveOnce(page, req.solver, loaded, redact)
+					: loaded;
+				return { ...read, storageState: await context.storageState() };
 			} finally {
 				// A context that won't close would stay alive on the server. Drop
 				// the connection instead; the server discards a client's contexts
@@ -121,7 +241,8 @@ export function createCamoufoxFetcher(
 			connectTimeoutMs +
 				NAVIGATION_TIMEOUT_MS +
 				req.waitForTimeout +
-				REQUEST_MARGIN_MS;
+				REQUEST_MARGIN_MS +
+				(req.solver ? SOLVER_TIMEOUT_MS + NAVIGATION_TIMEOUT_MS : 0);
 		let timer: NodeJS.Timeout | undefined;
 		const deadline = new Promise<never>((_, reject) => {
 			timer = setTimeout(() => {

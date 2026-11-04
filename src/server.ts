@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { createCamoufoxFetcher } from "./browser.js";
 import { loadConfig } from "./config.js";
 import { PROFILES } from "./profiles.js";
+import { createSolver } from "./solver/index.js";
 import { createStateStore } from "./state-store.js";
 import { Scheduler } from "./throttle.js";
 
@@ -22,6 +23,8 @@ const app = createApp({
 	scheduler,
 	store: createStateStore(config.stateDir),
 	logger,
+	solver: createSolver(config),
+	solverProfiles: config.solverProfiles,
 });
 
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {

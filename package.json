@@ -1,6 +1,6 @@
 {
 	"name": "stealth-browser",
-	"version": "0.1.6",
+	"version": "0.2.0",
 	"private": true,
 	"type": "module",
 	"packageManager": "pnpm@11.0.8",
@@ -14,6 +14,7 @@
 		"signin": "uv run scripts/login.py",
 		"smoke": "node scripts/smoke.ts",
 		"smoke:fingerprint": "node scripts/smoke.ts fingerprint",
+		"solver-check": "node scripts/solver-check.ts",
 		"test": "vitest run",
 		"test:integration": "vitest run --config vitest.integration.config.ts"
 	},
@@ -28,6 +29,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.15",
 		"@types/node": "22.20.5",
+		"happy-dom": "^21.0.4",
 		"typescript": "5.9.3",
 		"vitest": "^5.0.4"
 	}

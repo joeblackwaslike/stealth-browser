@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { classifyPage } from "../src/detect.js";
+import { classifyPage, detectChallenge } from "../src/detect.js";
 
 const fixture = (name: string) =>
 	readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -192,6 +192,39 @@ describe("classifyPage", () => {
 		expect(verdict).toEqual({ kind: "rate_limited" });
 	});
 
+	it("blocks google's 429 sorry page so a failed solve pauses the profile", async () => {
+		const verdict = classifyPage({
+			profile: "google",
+			html: await fixture("google-sorry.html"),
+			finalUrl: "https://www.google.com/sorry/index?continue=x",
+			cookieNames: [],
+			status: 429,
+		});
+		expect(verdict).toEqual({ kind: "blocked", reason: "google_sorry" });
+	});
+
+	it("still treats a google 429 outside /sorry as rate_limited", () => {
+		const verdict = classifyPage({
+			profile: "google",
+			html: "<html><body>Too many requests</body></html>",
+			finalUrl: "https://www.google.com/search?q=x",
+			cookieNames: [],
+			status: 429,
+		});
+		expect(verdict).toEqual({ kind: "rate_limited" });
+	});
+
+	it("does not treat a lookalike host's /sorry page as google_sorry", () => {
+		const verdict = classifyPage({
+			profile: "anon",
+			html: "<html><body>Too many requests</body></html>",
+			finalUrl: "https://notgoogle.com/sorry/index",
+			cookieNames: [],
+			status: 429,
+		});
+		expect(verdict).toEqual({ kind: "rate_limited" });
+	});
+
 	it.each([
 		['<div class="g-recaptcha extra"></div>', "captcha"],
 		["<div class='h-captcha'></div>", "captcha"],
@@ -276,5 +309,105 @@ describe("classifyPage", () => {
 			cookieNames: [],
 		});
 		expect(verdict).toEqual({ kind: "ok" });
+	});
+});
+
+describe("detectChallenge", () => {
+	const sorryUrl = "https://www.google.com/sorry/index?continue=x";
+
+	it("reads sitekey and data-s from a google sorry page", async () => {
+		expect(
+			detectChallenge(await fixture("google-sorry.html"), sorryUrl),
+		).toEqual({
+			type: "recaptcha_v2",
+			sitekey: "SITEKEY123",
+			pageUrl: sorryUrl,
+			dataS: "DATAS456",
+		});
+	});
+
+	it("omits dataS when the widget has none", async () => {
+		expect(
+			detectChallenge(await fixture("recaptcha-widget.html"), sorryUrl),
+		).toEqual({
+			type: "recaptcha_v2",
+			sitekey: "SITEKEY123",
+			pageUrl: sorryUrl,
+		});
+	});
+
+	it("returns null for a widget without data-sitekey", () => {
+		expect(
+			detectChallenge('<div class="g-recaptcha"></div>', sorryUrl),
+		).toBeNull();
+	});
+
+	it("returns null for the eBay challenge page", async () => {
+		expect(
+			detectChallenge(await fixture("ebay-challenge.html"), sorryUrl),
+		).toBeNull();
+	});
+
+	it("returns null for a normal reddit page", async () => {
+		expect(
+			detectChallenge(await fixture("reddit-search-ok.html"), sorryUrl),
+		).toBeNull();
+	});
+
+	it("returns null for a g-recaptcha-response element", () => {
+		expect(
+			detectChallenge(
+				'<textarea class="g-recaptcha-response" data-sitekey="X"></textarea>',
+				sorryUrl,
+			),
+		).toBeNull();
+	});
+
+	it("reads both values when data-s comes before data-sitekey", () => {
+		expect(
+			detectChallenge(
+				'<div class="g-recaptcha" data-s="S1" data-sitekey="K1"></div>',
+				sorryUrl,
+			),
+		).toEqual({
+			type: "recaptcha_v2",
+			sitekey: "K1",
+			pageUrl: sorryUrl,
+			dataS: "S1",
+		});
+	});
+
+	it("accepts single-quoted attributes", () => {
+		expect(
+			detectChallenge(
+				"<div class='g-recaptcha' data-sitekey='K2'></div>",
+				sorryUrl,
+			),
+		).toEqual({ type: "recaptcha_v2", sitekey: "K2", pageUrl: sorryUrl });
+	});
+
+	it("ignores a widget inside a script template", () => {
+		expect(
+			detectChallenge(
+				'<script type="text/template"><div class="g-recaptcha" data-sitekey="K3"></div></script>',
+				sorryUrl,
+			),
+		).toBeNull();
+	});
+});
+
+describe("detectChallenge attribute boundaries", () => {
+	it("ignores an attribute whose name only ends in data-sitekey", () => {
+		const html =
+			'<div class="g-recaptcha" not-data-sitekey="WRONG" data-sitekey="RIGHT"></div>';
+		expect(detectChallenge(html, "https://example.com/")?.sitekey).toBe(
+			"RIGHT",
+		);
+		expect(
+			detectChallenge(
+				'<div class="g-recaptcha" not-data-sitekey="WRONG"></div>',
+				"https://example.com/",
+			),
+		).toBeNull();
 	});
 });

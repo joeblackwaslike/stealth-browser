@@ -22,8 +22,17 @@ describe("profileForUrl", () => {
 		["https://notebay.com/", "anon"],
 		["https://ebay.com.evil.example/", "anon"],
 		["https://myreddit.com/", "anon"],
+		["https://www.google.com/search?q=x", "google"],
+		["https://notgoogle.com/", "anon"],
 	])("routes %s to %s", (url, expected) => {
 		expect(profileForUrl(new URL(url))).toBe(expected);
+	});
+});
+
+describe("google profile", () => {
+	it("has its own pacing and needs no login", () => {
+		expect(PROFILES.google.minGapMs).toEqual([8000, 15000]);
+		expect(PROFILES.google.requiresLogin).toBe(false);
 	});
 });
 

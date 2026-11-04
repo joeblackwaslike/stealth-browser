@@ -42,7 +42,7 @@ Every route requires `Authorization: Bearer <token>`.
 `POST /content` fetches a page:
 
 ```bash
-curl -sS -m 180 -X POST "$STEALTH_BROWSER_URL/content" \
+curl -sS -m 300 -X POST "$STEALTH_BROWSER_URL/content" \
   -H "Authorization: Bearer $STEALTH_BROWSER_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://old.reddit.com/r/selfhosted/"}'
@@ -73,6 +73,7 @@ every subdomain of it:
 | --- | --- | --- |
 | `ebay.com`, `*.ebay.com` | `ebay` | saved login |
 | `reddit.com`, `*.reddit.com` | `reddit` | saved login |
+| `google.com`, `*.google.com` | `google` | none |
 | anything else | `anon` | none |
 
 Matching follows label boundaries, so `notebay.com` and `ebay.com.example` go to `anon`.
@@ -86,7 +87,7 @@ to the store, unless a newer session was uploaded while the request ran.
 | 400 | `{"error":"invalid_request","message":...}` | Bad body or disallowed URL |
 | 401 | not JSON | Token missing or wrong |
 | 401 | `{"session_expired":true,"profile":...}` | No saved session, or the site redirected to its sign-in page |
-| 423 | `{"blocked":true,"profile":...,"reason":...}` | The site served a bot check; the profile is now paused for 30 minutes |
+| 423 | `{"blocked":true,"profile":...,"reason":...}` | The site served a bot check; the profile is now paused for 30 minutes. No `Retry-After` header |
 | 423 | same, `"reason":"paused"`, plus `Retry-After` (seconds) | The profile is still paused from an earlier block |
 | 429 | `{"error":"rate_limited","profile":...}` | The site answered 429; no pause |
 | 429 | `{"error":"queue_full"}` | The queue is full |
@@ -95,8 +96,8 @@ to the store, unless a newer session was uploaded while the request ran.
 | 502 | `{"error":"navigation_failed","message":...}` | Navigation failed or timed out |
 
 A fresh block's `reason` is one of `ebay_challenge_redirect`, `interruption_page`,
-`ebay_error_page`, `captcha`, `verify_human`, or `http_block_status` (the site answered
-403). Session expiry means the eBay request landed on `signin.ebay.com`, or the Reddit
+`ebay_error_page`, `captcha`, `verify_human`, `google_sorry` (Google's `/sorry` page, even
+when served with 429), or `http_block_status` (the site answered 403). Session expiry means the eBay request landed on `signin.ebay.com`, or the Reddit
 request landed on `/login` or came back without a `reddit_session` cookie. On a fresh block or
 a detected expiry, the gateway saves the page HTML under `/state/captures`, keeping the newest 20.
 
@@ -104,9 +105,51 @@ a detected expiry, the gateway saves the page HTML under `/state/captures`, keep
 
 There is one browser, so requests run one at a time in FIFO order. Between two starts
 on the same profile the gateway waits a random gap: 20-40 s for `ebay`, 5-10 s for
-`reddit`, 3-8 s for `anon`. One request runs and up to five wait; a seventh gets
+`reddit`, 8-15 s for `google`, 3-8 s for `anon`. One request runs and up to five wait; a seventh gets
 `queue_full`. A request can wait a minute or more, so give clients a long timeout.
 Navigation times out after 30 s.
+
+### Solver
+
+The gateway can send reCAPTCHA v2 challenges to a 2Captcha-compatible service. It is off
+unless `SOLVER_API_KEY` is set.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SOLVER_API_KEY` | unset | API key. Unset disables the solver. |
+| `SOLVER_BASE_URL` | `https://2captcha.com` | Base URL of the solver service. Must be `https://`. A path prefix such as `/api` is kept |
+| `SOLVER_MAX_PER_HOUR` | `20` | Positive integer. Solve attempts allowed per hour, failed ones included |
+| `SOLVER_PROFILES` | `google` | Comma-separated profile names that may use the solver. Unknown names fail at startup |
+
+The solver only runs for profiles in `SOLVER_PROFILES`. To turn solving on elsewhere, list
+the profile, for example `SOLVER_PROFILES=google,anon`. An `anon` page with an ordinary
+reCAPTCHA form gets no solve and no form submit unless `anon` is listed. The hourly budget
+lives in memory, so a pod restart resets it. The gateway assumes a single replica.
+
+When a fetched page has a reCAPTCHA v2 widget with a sitekey, the gateway asks the solver
+for a token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It
+solves at most once per fetch. If the solver or the form fails (solver timeout, provider
+error, budget used up, no form on the page), the gateway returns the original page and
+classifies it as usual. Google's `/sorry` page and a challenge page with any status other
+than 429 are classified `blocked`, so the profile pauses for 30 minutes and the client gets
+a 423 with no `Retry-After`. A non-Google challenge page served with HTTP 429 stays
+`rate_limited`, so the client gets a 429 and the profile does not pause. If the solver returns
+a token and the site rejects it, the gateway returns the page after the submit and
+classifies it like any other page. The `solve_failed` warning in the gateway log carries
+the failure `reason`. When an error exists, `err` holds its class and message, with the
+solver key and Camoufox endpoint redacted.
+
+With a solver, a request can take about 240 s plus any queue wait. The deadline adds up to
+30 s connect, 30 s navigation, 0-15 s `waitForTimeout`, 15 s margin, 120 s solver and 30 s
+for the submit navigation. That is 228 s at the default `waitForTimeout` and 240 s at most.
+The browser slot can stay held up to 10 s past the deadline (250 s), and each request queued
+ahead adds that much. Set client timeouts to 300 s or more.
+
+Google's terms restrict automated querying of Search. Not yet verified against Google's
+/sorry page.
+
+In the cluster, the key comes from the optional `solverApiKey` entry in the
+`stealth-browser-secrets` secret. Without that entry the pod starts with the solver off.
 
 ## Setup
 
