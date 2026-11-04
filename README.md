@@ -125,7 +125,8 @@ gateway saves the page HTML under `/state/captures` too.
 There is one browser, so requests run one at a time in FIFO order. Between two starts
 on the same key the gateway waits a random gap from the host table above. The key is the
 profile for eBay, Reddit and Google, and the hostname for everything else. One request runs
-and up to five wait; a seventh gets `queue_full`. A request can wait a minute or more, so give clients a long timeout.
+and up to five wait; a seventh gets `queue_full`. A request can wait a minute or more,
+so give clients a long timeout.
 Navigation times out after 30 s.
 
 ### Solver
