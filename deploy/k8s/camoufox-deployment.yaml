@@ -51,9 +51,9 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              memory: 768Mi
+              memory: 1280Mi
             limits:
-              memory: 1536Mi
+              memory: 2304Mi
       volumes:
         - name: fingerprint
           configMap:
