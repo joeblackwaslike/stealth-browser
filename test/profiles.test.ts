@@ -4,6 +4,7 @@ import {
 	isProfileName,
 	PROFILES,
 	profileForUrl,
+	scheduleKey,
 } from "../src/profiles.js";
 
 describe("profileForUrl", () => {
@@ -54,5 +55,27 @@ describe("profile guards", () => {
 		expect(PROFILES.anon.minGapMs).toEqual([3000, 8000]);
 		expect(PROFILES.anon.requiresLogin).toBe(false);
 		expect(PROFILES.ebay.requiresLogin).toBe(true);
+	});
+});
+
+describe("scheduleKey", () => {
+	it("maps ebay subdomains to ebay", () => {
+		expect(scheduleKey(new URL("https://m.ebay.com/itm/1"))).toBe("ebay");
+	});
+
+	it("uses the hostname for unknown hosts", () => {
+		expect(scheduleKey(new URL("https://WWW.Amazon.com./s"))).toBe(
+			"www.amazon.com",
+		);
+	});
+});
+
+describe("pauseOnBlock", () => {
+	it("is true only for ebay and reddit", () => {
+		expect(
+			Object.values(PROFILES)
+				.filter((p) => p.pauseOnBlock)
+				.map((p) => p.name),
+		).toEqual(["ebay", "reddit"]);
 	});
 });

@@ -5,7 +5,7 @@ import { pino } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type AppDeps, createApp } from "../src/app.js";
 import type { Fetcher, FetchRequest, FetchResult } from "../src/browser.js";
-import { PROFILES, type Profile, type ProfileName } from "../src/profiles.js";
+import type { ProfileName } from "../src/profiles.js";
 import type { Solver } from "../src/solver/index.js";
 import {
 	createStateStore,
@@ -16,13 +16,6 @@ import { Scheduler } from "../src/throttle.js";
 
 const TOKEN = "test-token";
 const auth = { authorization: `Bearer ${TOKEN}` };
-const noGap = Object.fromEntries(
-	Object.entries(PROFILES).map(([name, p]) => [
-		name,
-		{ ...p, minGapMs: [0, 0] as const },
-	]),
-) as Record<ProfileName, Profile>;
-
 function cookie(name: string): StorageState["cookies"][number] {
 	return {
 		name,
@@ -76,7 +69,7 @@ function build(
 	return createApp({
 		token: TOKEN,
 		fetcher: counted,
-		scheduler: new Scheduler(noGap, clock),
+		scheduler: new Scheduler(clock),
 		store,
 		logger,
 		now: clock.now,

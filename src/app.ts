@@ -7,8 +7,10 @@ import { classifyPage } from "./detect.js";
 import {
 	isLoginProfile,
 	type LoginProfileName,
+	PROFILES,
 	type ProfileName,
 	profileForUrl,
+	scheduleKey,
 } from "./profiles.js";
 import type { Solver } from "./solver/index.js";
 import {
@@ -111,33 +113,38 @@ export function createApp(deps: AppDeps): Hono {
 
 			// Read the login when the task starts, not when it was queued, so a
 			// waiting request uses the cookies the previous request refreshed.
-			const { result, page } = await scheduler.run(resolved, async () => {
-				let storageState: StorageState | undefined;
-				if (isLoginProfile(resolved)) {
-					const stored = await readState(resolved);
-					storageState = stored?.state;
-					generation = stored?.generation ?? 0;
-				}
-				const fetched = await fetcher({
-					url,
-					waitForTimeout,
-					storageState,
-					solver: solverProfiles.has(resolved) ? solver : undefined,
-				});
-				const classified = classifyPage({
-					profile: resolved,
-					html: fetched.html,
-					finalUrl: parseUrl(fetched.finalUrl) ? fetched.finalUrl : url,
-					cookieNames: fetched.storageState.cookies.map(
-						(cookie) => cookie.name,
-					),
-					status: fetched.status,
-				});
-				// Pause inside the task, before it frees its slot, so no queued
-				// request for this profile can start after a block.
-				if (classified.kind === "blocked") scheduler.pause(resolved);
-				return { result: fetched, page: classified };
-			});
+			const key = scheduleKey(parsed);
+			const { result, page } = await scheduler.run(
+				key,
+				PROFILES[resolved].minGapMs,
+				async () => {
+					let storageState: StorageState | undefined;
+					if (isLoginProfile(resolved)) {
+						const stored = await readState(resolved);
+						storageState = stored?.state;
+						generation = stored?.generation ?? 0;
+					}
+					const fetched = await fetcher({
+						url,
+						waitForTimeout,
+						storageState,
+						solver: solverProfiles.has(resolved) ? solver : undefined,
+					});
+					const classified = classifyPage({
+						profile: resolved,
+						html: fetched.html,
+						finalUrl: parseUrl(fetched.finalUrl) ? fetched.finalUrl : url,
+						cookieNames: fetched.storageState.cookies.map(
+							(cookie) => cookie.name,
+						),
+						status: fetched.status,
+					});
+					// Pause inside the task, before it frees its slot, so no queued
+					// request for this profile can start after a block.
+					if (classified.kind === "blocked") scheduler.pause(key);
+					return { result: fetched, page: classified };
+				},
+			);
 			verdict = page.kind;
 			solve = result.solve;
 			if (result.solve === "failed") {

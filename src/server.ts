@@ -3,7 +3,6 @@ import { pino } from "pino";
 import { createApp } from "./app.js";
 import { createCamoufoxFetcher } from "./browser.js";
 import { loadConfig } from "./config.js";
-import { PROFILES } from "./profiles.js";
 import { createSolver } from "./solver/index.js";
 import { createStateStore } from "./state-store.js";
 import { Scheduler } from "./throttle.js";
@@ -11,7 +10,7 @@ import { Scheduler } from "./throttle.js";
 const config = loadConfig(process.env);
 const logger = pino({ level: config.logLevel });
 
-const scheduler = new Scheduler(PROFILES, {
+const scheduler = new Scheduler({
 	now: Date.now,
 	sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 	random: Math.random,
