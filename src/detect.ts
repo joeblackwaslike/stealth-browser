@@ -8,7 +8,7 @@ export type PageVerdict =
 	| { kind: "rate_limited" };
 
 const CAPTCHA_WIDGET =
-	/class=["'][^"']*\b(?:g-recaptcha|h-captcha)\b[^"']*["']|id=["']captchacharacters["']/i;
+	/(?<=\s)class=["'][^"']*(?<![\w-])(?:g-recaptcha|h-captcha)(?![\w-])[^"']*["']|(?<=\s)id=["']captchacharacters["']/i;
 const VERIFY_HUMAN = /verify\s+you\s+are\s+human/i;
 const INTERRUPTION_TITLE = /Pardon Our Interruption/i;
 const EBAY_ERROR_TITLE = /^Error Page/i;
@@ -98,7 +98,7 @@ export type Challenge = {
 };
 
 const RECAPTCHA_TAG =
-	/<[a-z][^>]*class=["'][^"']*(?<![\w-])g-recaptcha(?![\w-])[^"']*["'][^>]*>/i;
+	/<[a-z][^>]*(?<=\s)class=["'][^"']*(?<![\w-])g-recaptcha(?![\w-])[^"']*["'][^>]*>/i;
 
 function attribute(tag: string, name: string): string | undefined {
 	return new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, "i").exec(tag)?.[1];
