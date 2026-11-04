@@ -108,13 +108,13 @@ A fresh block's 423 body has these fields:
 - `marker` is the exact check that matched: `ebay_challenge_redirect`, `interruption_page`,
   `ebay_error_page`, `captcha_widget:g-recaptcha`, `captcha_widget:h-captcha`,
   `captcha_widget:amazon`, `verify_human`, `google_sorry`, or `http_block_status`.
-- `html` is the blocked page, so the caller can see what the site served.
+- `html` is the page the site served.
 - `capture` is the file name of the copy saved under `/state/captures` (newest 20 kept).
   It is left out when the save fails.
 
 The `paused` 423 comes from the gateway without fetching anything, so it has no `host`,
-`marker`, `html`, or `capture`. If you feed responses to an LLM, pull out the fields you
-need with `jq` (for example `jq -r '.marker'`) instead of printing `html`.
+`marker`, `html`, or `capture`. `html` can be large, so extract only the fields you need
+(for example `jq -r '.marker'`) instead of printing the whole body.
 
 Session expiry means the eBay request landed on `signin.ebay.com`, or the Reddit request
 landed on `/login` or came back without a `reddit_session` cookie. On a detected expiry the
@@ -124,8 +124,8 @@ gateway saves the page HTML under `/state/captures` too.
 
 There is one browser, so requests run one at a time in FIFO order. Between two starts
 on the same key the gateway waits a random gap from the host table above. The key is the
-profile for eBay, Reddit and Google, and the hostname for everything else. One request runs and up to five wait; a seventh gets
-`queue_full`. A request can wait a minute or more, so give clients a long timeout.
+profile for eBay, Reddit and Google, and the hostname for everything else. One request runs
+and up to five wait; a seventh gets `queue_full`. A request can wait a minute or more, so give clients a long timeout.
 Navigation times out after 30 s.
 
 ### Solver
@@ -140,18 +140,18 @@ are all hidden inputs, buttons, and the response textarea. A widget outside a fo
 form a person fills in (a login or comment form with text inputs), gets no solve and no
 submit, and is not classified as a block.
 
-When a fetched page has such a form with a sitekey, the gateway asks the solver
-for a token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It
-solves at most once per fetch. If the solver or the form fails (solver timeout, provider
-error, budget used up, no form on the page), the gateway returns the original page and
-classifies it as usual. Google's `/sorry` page and a challenge page with any status other
-than 429 are classified `blocked`, so the client gets a 423 and, on eBay and Reddit, the
-profile pauses for 30 minutes. A challenge page served with HTTP 429 stays
-`rate_limited`: the client gets a 429 and nothing pauses. If the solver returns
-a token and the site rejects it, the gateway returns the page after the submit and
-classifies it like any other page. The `solve_failed` warning in the gateway log carries
-the failure `reason`. When an error exists, `err` holds its class and message, with the
-solver key and Camoufox endpoint redacted.
+When a fetched page has such a form with a sitekey, the gateway asks the solver for a
+token, fills `g-recaptcha-response`, submits the form, and waits for navigation. It solves
+at most once per fetch. If the solver or the form fails (solver timeout, provider error,
+budget used up, no form on the page), the gateway returns the original page and classifies
+it as usual. A challenge page is `blocked` unless it came back with HTTP 429, so the client
+gets a 423 and, on eBay and Reddit, the profile pauses for 30 minutes. A challenge page
+served with HTTP 429 is `rate_limited` instead: the client gets a 429 and nothing pauses.
+The one exception is Google's `/sorry` page, which is `blocked` on any status, 429
+included. If the solver returns a token and the site rejects it, the gateway returns the
+page after the submit and classifies it like any other page. The `solve_failed` warning in
+the gateway log carries the failure `reason`. When an error exists, `err` holds its class
+and message, with the solver key and Camoufox endpoint redacted.
 
 With a solver, a request can take about 240 s plus any queue wait. The deadline adds up to
 30 s connect, 30 s navigation, 0-15 s `waitForTimeout`, 15 s margin, 120 s solver and 30 s
