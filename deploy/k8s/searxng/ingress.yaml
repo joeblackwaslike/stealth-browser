@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: searxng-ts
+  annotations:
+    tailscale.com/hostname: search
+    tailscale.com/proxy-group: cluster-ingress
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: searxng
+      port:
+        number: 8080
+  tls:
+    - hosts:
+        - search

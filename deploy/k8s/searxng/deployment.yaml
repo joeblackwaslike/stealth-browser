@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 977
+        runAsGroup: 977
+        fsGroup: 977
+      initContainers:
+        - name: render-settings
+          image: searxng/searxng:2026.10.17-2a6fc07be
+          command:
+            - python3
+            - -c
+            - |
+              import json
+              import sys
+              from pathlib import Path
+              key_file = Path("/brave/api-key")
+              key = key_file.read_text().strip() if key_file.exists() else ""
+              if not key:
+                  print("render-settings: no Brave API key in Secret searxng-brave; braveapi will fail setup", file=sys.stderr)
+              template = Path("/template/settings.yml").read_text()
+              rendered = template.replace('"__BRAVE_API_KEY__"', json.dumps(key))
+              Path("/etc/searxng/settings.yml").write_text(rendered)
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: settings-template
+              mountPath: /template
+            - name: brave
+              mountPath: /brave
+              readOnly: true
+            - name: settings
+              mountPath: /etc/searxng
+      containers:
+        - name: searxng
+          image: searxng/searxng:2026.10.17-2a6fc07be
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: searxng
+                  key: secret-key
+            - name: STEALTH_BROWSER_URL
+              value: http://gateway.stealth-browser.svc.cluster.local:8080
+            - name: STEALTH_BROWSER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: searxng-gateway
+                  key: token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: settings
+              mountPath: /etc/searxng
+            - name: data
+              mountPath: /var/cache/searxng
+            - name: tmp
+              mountPath: /tmp
+            - name: engines
+              mountPath: /usr/local/searxng/searx/engines/stealth_google.py
+              subPath: stealth_google.py
+              readOnly: true
+      volumes:
+        - name: engines
+          configMap:
+            name: searxng-engines
+        - name: settings-template
+          configMap:
+            name: searxng-settings
+        - name: brave
+          secret:
+            secretName: searxng-brave
+            optional: true
+        - name: settings
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
