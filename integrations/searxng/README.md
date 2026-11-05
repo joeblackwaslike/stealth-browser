@@ -39,8 +39,6 @@ The tests stub the SearXNG modules in `tests/conftest.py`, so SearXNG itself is 
 TERM=dumb uv run --with pytest --with pytest-timeout --with lxml python -m pytest --timeout=30 -p no:cacheprovider integrations/searxng/tests -q
 ```
 
-Last run: 9 passed.
-
 ## How openclaw-setup consumes it
 
 The `openclaw-setup` repo owns the SearXNG deployment (`k8s/searxng/`). It copies this file in and wires it up with four edits:
@@ -55,4 +53,4 @@ When this file changes here, the copy in `openclaw-setup` has to be updated by h
 ## Known issues
 
 1. After a solved CAPTCHA the gateway can return Google's redirect interstitial instead of results. The engine raises `SearxEngineAPIException` on that page. The gateway-side fix is tracked as `stealth-browser-1uo`.
-2. The cluster deployment of this engine was not live when the session that built it ended on 2026-11-03. Another session's deploy of the SearXNG manifests overwrote it, and the engine's env vars, mount and settings entry were lost. This is taken from that session's final summary and has not been rechecked against the cluster.
+Deployment status lives with the `openclaw-setup` wiring, not in this repo.

@@ -54,6 +54,6 @@ Not built or not working:
 - Confirm SearXNG honors a 60 s per-engine timeout (`outgoing.max_request_timeout`). Solve latency was expected at 20 to 60 s.
 - Throughput. The gateway's `google` profile paces requests 8 to 15 s apart, so concurrent searches may get 429 `queue_full`. Whether the engine should treat 429 as a soft failure is undecided.
 - The plan proposed raising `SearxEngineCaptchaException` on a 423 `blocked` or a `/sorry` `X-Final-Url`. The engine does not do this. Whether it should is undecided.
-- Confirm the engine module path in the SearXNG image. The deployment mounts at `/usr/local/searxng/searx/engines/`. The transcript does not show the `kubectl exec` check the plan called for.
-- Run `python-reviewer` on the engine. The plan listed it, and the transcript does not show it.
+- Confirm the engine module path in the SearXNG image. The deployment mounts at `/usr/local/searxng/searx/engines/`. Check with `kubectl exec` into the SearXNG pod and `ls /usr/local/searxng/searx/engines`.
+- Run a Python review on the engine (`stealth_google.py`) before the first deploy.
 - Fix the interstitial in the gateway (`stealth-browser-1uo`).

@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -94,6 +95,43 @@ def test_request_posts_search_url_to_gateway(monkeypatch):
     assert params["headers"]["Authorization"] == "Bearer tok"
     assert params["json"]["url"].startswith("https://www.google.com/search?q=python+asyncio")
     assert "hl=en" in params["json"]["url"]
+
+
+def test_content_is_the_result_description_not_the_site_label(resolver):
+    results = stealth_google.response(fake_response(fixture_page()))
+    assert results[0].content.startswith("asyncio is a library to write concurrent code")
+    assert "Python documentation" not in results[0].content
+    assert "docs.python.org" not in results[0].content
+    assert all(r.content for r in results)
+
+
+def test_empty_title_does_not_space_out_the_snippet(monkeypatch):
+    monkeypatch.setattr(stealth_google, "_resolve", lambda path: "https://a.test/")
+    page = '<html><body><div><a href="/goto?x"><h3></h3></a><div>hello world</div></div></body></html>'
+    results = stealth_google.response(fake_response(page))
+    assert results[0].content == "hello world"
+
+
+def test_zero_results_without_interstitial_logs_a_warning(caplog):
+    caplog.set_level(logging.WARNING, logger="searx.engines.stealth_google")
+    page = "<html><head><title>Sorry</title></head><body>unusual traffic</body></html>"
+    assert len(stealth_google.response(fake_response(page))) == 0
+    assert "no results" in caplog.text
+
+
+@pytest.mark.parametrize("body", ["", "   ", "\n"])
+def test_empty_gateway_body_raises_engine_exception(body):
+    with pytest.raises(SearxEngineAPIException):
+        stealth_google.response(fake_response(body))
+
+
+@pytest.mark.parametrize("missing", ["STEALTH_BROWSER_URL", "STEALTH_BROWSER_TOKEN"])
+def test_missing_env_var_is_named_in_the_error(monkeypatch, missing):
+    monkeypatch.setenv("STEALTH_BROWSER_URL", "http://gateway.test:8080")
+    monkeypatch.setenv("STEALTH_BROWSER_TOKEN", "tok")
+    monkeypatch.delenv(missing)
+    with pytest.raises(SearxEngineAPIException, match=missing):
+        stealth_google.request("q", {"headers": {}})
 
 
 def test_module_does_not_shadow_reserved_engine_attributes():

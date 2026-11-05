@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 
 from lxml import html
+from lxml.etree import ParserError
 from searx import network as searx_network
 from searx.exceptions import SearxEngineAPIException
 from searx.result_types import EngineResults
@@ -48,26 +49,42 @@ GOOGLE = "https://www.google.com"
 RESULT_ANCHOR = "//a[starts-with(@href, '/goto')][.//h3]"
 INTERSTITIAL = "if you are not redirected"
 REDIRECT_STATUSES = (301, 302, 303, 307, 308)
-MAX_SNIPPET_ANCESTORS = 4
+MAX_SNIPPET_ANCESTORS = 5
 
 
 def request(query, params):
     lang = params.get("searxng_locale", "en").split("-")[0]
     search = urlencode({"q": query, "hl": "en" if lang == "all" else lang, "num": 10})
-    params["url"] = f"{os.environ['STEALTH_BROWSER_URL']}/content"
+    params["url"] = f"{_env('STEALTH_BROWSER_URL')}/content"
     params["method"] = "POST"
-    params["headers"]["Authorization"] = f"Bearer {os.environ['STEALTH_BROWSER_TOKEN']}"
+    params["headers"]["Authorization"] = f"Bearer {_env('STEALTH_BROWSER_TOKEN')}"
     params["json"] = {
         "url": f"{GOOGLE}/search?{search}",
         "waitForTimeout": RENDER_WAIT_MS,
     }
 
 
+def _env(name):
+    value = os.environ.get(name)
+    if not value:
+        raise SearxEngineAPIException(f"stealth google engine requires {name}")
+    return value
+
+
 def response(resp):
-    doc = html.fromstring(resp.text)
+    if not resp.text.strip():
+        raise SearxEngineAPIException("gateway returned an empty body")
+    try:
+        doc = html.fromstring(resp.text)
+    except ParserError as exc:
+        raise SearxEngineAPIException("gateway returned an unparseable body") from exc
     anchors = doc.xpath(RESULT_ANCHOR)
     if not anchors and INTERSTITIAL in resp.text:
         raise SearxEngineAPIException("google returned its redirect interstitial instead of results")
+    if not anchors:
+        title = doc.findtext(".//title") or ""
+        _log.warning("no results parsed (title=%r, body length=%d)", title, len(resp.text))
+        return EngineResults()
 
     with ThreadPoolExecutor(max_workers=RESOLVE_WORKERS) as pool:
         urls = list(pool.map(_resolve, [a.get("href") for a in anchors]))
@@ -108,11 +125,15 @@ def _snippet(anchor, title):
     node = anchor
     for _ in range(MAX_SNIPPET_ANCESTORS):
         parent = node.getparent()
-        if parent is None or len(parent.xpath(RESULT_ANCHOR)) != 1:
+        if parent is None or len(parent.xpath(f".{RESULT_ANCHOR}")) != 1:
             break
         node = parent
     noise = [title, *(_text(cite) for cite in node.xpath(".//cite"))]
-    text = _text(node)
-    for fragment in noise:
+    site_label = _strip(_text(anchor), noise)
+    return _strip(_text(node), [*noise, site_label])
+
+
+def _strip(text, fragments):
+    for fragment in filter(None, fragments):
         text = text.replace(fragment, " ")
     return re.sub(r"\s+", " ", text).strip()
