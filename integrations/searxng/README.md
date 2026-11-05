@@ -53,4 +53,5 @@ When this file changes here, the copy in `openclaw-setup` has to be updated by h
 ## Known issues
 
 1. After a solved CAPTCHA the gateway can return Google's redirect interstitial instead of results. The engine raises `SearxEngineAPIException` on that page. The gateway-side fix is tracked as `stealth-browser-1uo`.
+
 Deployment status lives with the `openclaw-setup` wiring, not in this repo.
