@@ -13,6 +13,9 @@ case "${1:-}" in
   *) echo "usage: $0 [--brave-key-file <path>]" >&2; exit 1 ;;
 esac
 
+gateway_token="$(kubectl -n stealth-browser get secret stealth-browser-secrets -o jsonpath='{.data.gatewayToken}' | base64 -d)"
+[ -n "$gateway_token" ] || { echo "Secret stealth-browser-secrets in namespace stealth-browser has no gatewayToken" >&2; exit 1; }
+
 kubectl apply -f "$dir/namespace.yaml"
 if ! kubectl -n searxng get secret searxng >/dev/null 2>&1; then
   openssl rand -hex 32 | tr -d '\n' |
@@ -22,7 +25,7 @@ if [ -n "$brave_key_file" ]; then
   kubectl -n searxng create secret generic searxng-brave --from-file=api-key="$brave_key_file" \
     --dry-run=client -o yaml | kubectl -n searxng apply -f -
 fi
-kubectl -n stealth-browser get secret stealth-browser-secrets -o jsonpath='{.data.gatewayToken}' | base64 -d |
+printf '%s' "$gateway_token" |
   kubectl -n searxng create secret generic searxng-gateway --from-file=token=/dev/stdin \
     --dry-run=client -o yaml | kubectl -n searxng apply -f -
 kubectl kustomize --load-restrictor=LoadRestrictionsNone "$dir" | kubectl apply -f -
