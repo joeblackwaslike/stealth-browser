@@ -93,8 +93,10 @@ def test_request_posts_search_url_to_gateway(monkeypatch):
     assert params["url"] == "http://gateway.test:8080/content"
     assert params["method"] == "POST"
     assert params["headers"]["Authorization"] == "Bearer tok"
-    assert params["json"]["url"].startswith("https://www.google.com/search?q=python+asyncio")
-    assert "hl=en" in params["json"]["url"]
+    assert params["json"] == {
+        "url": "https://www.google.com/search?q=python+asyncio&hl=en&num=10",
+        "waitForTimeout": 2000,
+    }
 
 
 def test_content_is_the_result_description_not_the_site_label(resolver):
