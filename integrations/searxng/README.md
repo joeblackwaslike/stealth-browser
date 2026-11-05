@@ -43,16 +43,16 @@ The tests stub the SearXNG modules in `tests/conftest.py`, so SearXNG itself is 
 TERM=dumb uv run --with pytest --with pytest-timeout --with lxml python -m pytest --timeout=30 -p no:cacheprovider integrations/searxng/tests -q
 ```
 
-## How openclaw-setup consumes it
+## Deployment
 
-The `openclaw-setup` repo owns the SearXNG deployment (`k8s/searxng/`). It copies this file in and wires it up with four edits:
+The SearXNG manifests are in `deploy/k8s/searxng/`, next to the gateway's. Deploy with `deploy/k8s/searxng/deploy.sh` (add `--brave-key-file <path>` to set the Brave API key). The wiring for this engine:
 
-- `kustomization.yaml`: a `configMapGenerator` entry `searxng-engines` built from `stealth_google.py`.
+- `kustomization.yaml`: a `configMapGenerator` entry `searxng-engines` built straight from `integrations/searxng/stealth_google.py`, so there is no second copy. It reaches outside the kustomization directory, so render with `kubectl kustomize --load-restrictor=LoadRestrictionsNone`, which `deploy.sh` does.
 - `deployment.yaml`: mounts that ConfigMap at `/usr/local/searxng/searx/engines/stealth_google.py` with `subPath: stealth_google.py` (read-only), and sets `STEALTH_BROWSER_URL=http://gateway.stealth-browser.svc.cluster.local:8080` and `STEALTH_BROWSER_TOKEN` from key `token` of the Secret `searxng-gateway`.
 - `configmap.yaml`: an `engines:` block in the SearXNG settings that disables the stock `google` engine and enables `stealth google` (`engine: stealth_google`, `shortcut: gg`, `timeout: 60`).
 - `deploy.sh`: copies `gatewayToken` from the Secret `stealth-browser-secrets` in the `stealth-browser` namespace into the Secret `searxng-gateway` in the `searxng` namespace.
 
-When this file changes here, the copy in `openclaw-setup` has to be updated by hand.
+The OpenClaw side (registering SearXNG as a search provider) is configured in the `openclaw-setup` repo and is not part of this one.
 
 ## Known issues
 
