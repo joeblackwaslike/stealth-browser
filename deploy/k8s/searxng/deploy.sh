@@ -30,8 +30,6 @@ printf '%s' "$gateway_token" |
     --dry-run=client -o yaml | kubectl -n searxng apply -f -
 kubectl kustomize --load-restrictor=LoadRestrictionsNone "$dir" | kubectl apply -f -
 # Reloader skips a newly created Secret and patches asynchronously on updates,
-# so restart here to make the rollout wait below cover the new key.
-if [ -n "$brave_key_file" ]; then
-  kubectl -n searxng rollout restart deploy/searxng
-fi
+# so restart here to make the rollout wait below cover a new Brave key or gateway token.
+kubectl -n searxng rollout restart deploy/searxng
 kubectl -n searxng rollout status deploy/searxng --timeout=180s
