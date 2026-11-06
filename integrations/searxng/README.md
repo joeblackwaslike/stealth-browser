@@ -66,7 +66,7 @@ SearXNG runs in the `searxng` namespace on the Pi k3s cluster and is exposed onl
 Use the tailnet URL as the `baseUrl` for clients such as OpenClaw's SearXNG plugin. Check it with:
 
 ```sh
-curl -s 'https://search.napoleon-catfish.ts.net/search?q=python&format=json' | jq '.results | length'
+curl -fsS 'https://search.napoleon-catfish.ts.net/search?q=python&format=json' | jq '.results | length'
 ```
 
 The `search.napoleon-catfish.ts.net` name is the Ingress hostname plus the tailnet name from the original SearXNG design spec. It has not been checked against a running cluster from this repo.
