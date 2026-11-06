@@ -54,6 +54,23 @@ The SearXNG manifests are in `deploy/k8s/searxng/`, next to the gateway's. Deplo
 
 The OpenClaw side (registering SearXNG as a search provider) is configured in the `openclaw-setup` repo and is not part of this one.
 
+## Service address
+
+SearXNG runs in the `searxng` namespace on the Pi k3s cluster and is exposed only on the tailnet, through a Tailscale Ingress (`deploy/k8s/searxng/ingress.yaml`, hostname `search`, proxy group `cluster-ingress`, TLS on).
+
+| Where from | Base URL |
+| --- | --- |
+| Any device on the tailnet | `https://search.napoleon-catfish.ts.net` |
+| Inside the cluster | `http://searxng.searxng.svc.cluster.local:8080` |
+
+Use the tailnet URL as the `baseUrl` for clients such as OpenClaw's SearXNG plugin. Check it with:
+
+```sh
+curl -fsS 'https://search.napoleon-catfish.ts.net/search?q=python&format=json' | jq '.results | length'
+```
+
+The `search.napoleon-catfish.ts.net` name is the Ingress hostname plus the tailnet name from the original SearXNG design spec. It has not been checked against a running cluster from this repo.
+
 ## Known issues
 
 1. After a solved CAPTCHA the gateway can return Google's redirect interstitial instead of results. The engine raises `SearxEngineAPIException` on that page. The gateway-side fix is tracked as `stealth-browser-1uo`.
